@@ -49,6 +49,7 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     console.log('❌ Client disconnected');
     clientRoles.delete(ws);
-    b;roadcastViewerCount();
+    broadcastViewerCount();
   });
 });
+
