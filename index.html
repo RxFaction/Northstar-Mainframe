@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Project Northstar!</title>
+  <style>
+    :root {
+      --bg:#0f1117; --panel:#171923; --panel-2:#1e2130;
+      --text:#e6e6f0; --muted:#9aa0b4; --accent:#8b5cf6; --accent-2:#22d3ee;
+      --danger:#ef4444; --shadow:rgba(0,0,0,.35); --radius:14px;
+    }
+    *{box-sizing:border-box} html,body{height:100%}
+    body{
+      margin:0; color:var(--text);
+      background: radial-gradient(1200px 1200px at 10% 10%, #121426 0%, #0d0f1a 60%, #090b14 100%),
+                  radial-gradient(800px 800px at 90% 0%, rgba(34,211,238,.08), transparent 60%),
+                  radial-gradient(900px 900px at 0% 90%, rgba(139,92,246,.08), transparent 60%),
+                  var(--bg);
+      font:500 16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;
+      display:flex; flex-direction:column; min-height:100vh;
+    }
+
+    /* Topbar */
+    .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 20px;background:linear-gradient(180deg,rgba(0,0,0,.45),rgba(0,0,0,.15));backdrop-filter:saturate(140%) blur(8px);border-bottom:1px solid rgba(255,255,255,.06)}
+    .brand{display:flex;align-items:center;gap:12px}
+    .brand-logo{width:32px;height:32px;display:grid;place-items:center;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent-2));box-shadow:0 6px 24px rgba(139,92,246,.35)}
+    .brand h1{margin:0;font-size:18px;letter-spacing:.4px}
+    .pill{font-size:12px;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.08);color:var(--muted)}
+
+    .btn{cursor:pointer;border:0;border-radius:12px;padding:10px 14px;color:#fff;font-weight:600;background:var(--panel-2);box-shadow:0 4px 16px var(--shadow);transition:transform .06s ease,box-shadow .2s ease,background .2s ease}
+    .btn:hover{transform:translateY(-1px);box-shadow:0 8px 26px var(--shadow)}
+    .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent-2))}
+    .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,.1);color:var(--muted)}
+
+    /* Layout */
+    .layout{display:flex;gap:18px;padding:16px 20px;align-items:stretch;flex:1;min-height:0}
+    .stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:14px}
+
+    .video-shell{position:relative;width:100%;aspect-ratio:16/9;background:#0b0d16;border-radius:var(--radius);overflow:hidden;box-shadow:0 12px 40px var(--shadow), inset 0 0 0 1px rgba(255,255,255,.04)}
+    .video-shell video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#0b0d16}
+
+    .live-badge{position:absolute;top:12px;left:12px;display:flex;gap:8px;align-items:center;padding:6px 10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);border-radius:999px;backdrop-filter:blur(6px)}
+    .dot{width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 3px rgba(239,68,68,.25)}
+
+    .overlay{position:absolute;bottom:12px;left:12px;right:12px;display:flex;justify-content:space-between;gap:12px}
+    .meta{display:flex;gap:10px;align-items:center;padding:12px;background:var(--panel);border-radius:var(--radius);border:1px solid rgba(255,255,255,.06);box-shadow:0 10px 26px var(--shadow)}
+    .meta .title{font-weight:700}
+
+    /* Chat */
+    .chat{flex:0 0 360px;max-width:360px;display:flex;flex-direction:column;gap:10px;background:var(--panel);border-radius:var(--radius);padding:12px;box-shadow:0 12px 32px var(--shadow);border:1px solid rgba(255,255,255,.06);min-height:0}
+    .chat header{display:flex;justify-content:space-between;align-items:center}
+    .chat .messages{flex:1 1 auto;overflow-y:auto;min-height:0;padding-right:4px}
+    .chat .messages p{margin:8px 0;padding:8px 10px;background:var(--panel-2);border:1px solid rgba(255,255,255,.05);border-radius:10px}
+    .chat form{display:flex;gap:8px}
+    .chat input[type="text"]{flex:1;background:#0c0f19;border:1px solid rgba(255,255,255,.08);color:var(--text);padding:10px 12px;border-radius:10px;outline:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+    .chat button[type="submit"]{padding:10px 14px}
+
+    .hidden{display:none !important}
+
+    @media (max-width:980px){
+      .layout{flex-direction:column}
+      .chat{max-width:100%;flex-basis:auto}
+    }
+  </style>
+</head>
+<body>
+  <!-- Topbar -->
+  <nav class="topbar">
+    <div class="brand">
+      <div class="brand-logo" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M12 2l2.4 5.8L21 9.1l-4.6 4 1.2 6.1L12 16.9 6.4 19.2 7.6 13 3 9.1l6.6-1.3L12 2z" fill="white"/>
+        </svg>
+      </div>
+      <h1>Northstar</h1>
+      <span class="pill">P2P Streaming</span>
+    </div>
+    <div class="top-actions">
+      <button class="btn ghost" onclick="startViewer()">Join as Viewer</button>
+      <button class="btn primary" onclick="startStreamer()">Go Live</button>
+      <button class="btn" onclick="stopAll()">Stop</button>
+    </div>
+  </nav>
+
+  <!--Main Layout-->
+  <main class="layout">
+    <section class="stage" aria-label="Stream stage">
+      <div class="video-shell">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <video id="remoteVideo" autoplay playsinline></video>
+
+        <div class="live-badge" id="liveBadge" hidden>
+          <span class="dot"></span>
+          <strong>LIVE</strong>
+          <span class="pill" id="viewerCount">0 viewers</span>
+        </div>
+
+        <div class="overlay">
+          <div class="left meta">
+            <div class="brand-logo" style="width:28px;height:28px;border-radius:8px" aria-hidden="true"></div>
+            <div>
+              <div class="title" id="streamTitle">AlphaTestv2.0</div>
+              <div style="color:var(--muted);font-size:13px">Project Northstar</div>
+            </div>
+          </div>
+          <div class="right">
+            <select id="contentHint" class="btn" title="Quality Hint">
+              <option value="motion">Smoother Motion</option>
+              <option value="detail" selected>Sharper Text</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="chat" aria-label="Live chat">
+      <header>
+        <strong>Chat</strong>
+        <span class="pill" id="roomLabel">room: default</span>
+      </header>
+      <div class="messages" id="chatMessages" aria-live="polite"></div>
+      <form id="chatForm" autocomplete="off">
+        <input type="text" id="chatInput" placeholder="Type a message…" />
+        <button type="submit" class="btn primary">Send</button>
+      </form>
+    </aside>
+  </main>
+
+  <script>
+    // References & initial state
+    const localEl  = document.getElementById('localVideo');
+    const remoteEl = document.getElementById('remoteVideo');
+    const liveBadge = document.getElementById('liveBadge');
+    const contentHintSelect = document.getElementById('contentHint');
+
+    const chatForm  = document.getElementById('chatForm');
+    const chatInput = document.getElementById('chatInput');
+    const chatMessages = document.getElementById('chatMessages');
+
+    // Hide both videos on load
+    localEl.classList.add('hidden');
+    remoteEl.classList.add('hidden');
+
+    // Keep existing one-shot socket connection
+    const socket = new WebSocket('ws://localhost:3000');
+    let peerConnection; let localStream; let role = null;
+
+    socket.addEventListener('open', () => console.log('✅ WebSocket connected'));
+    socket.addEventListener('message', onSocketMessage);
+
+    async function onSocketMessage(event){
+      let raw = event.data; if(raw instanceof Blob) raw = await raw.text();
+      const data = JSON.parse(raw);
+
+      if (data.type === 'offer') {
+        peerConnection = createPeerConnection();
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        socket.send(JSON.stringify({ type: 'answer', answer }));
+      }
+      if (data.type === 'answer') {
+        if (peerConnection) await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+      }
+      if (data.type === 'candidate' && peerConnection) {
+        try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); }
+        catch (e) { console.error('Error adding ICE candidate', e); }
+      }
+      if (data.type === 'chat') { appendMessage(data.message); }
+    }
+
+    function createPeerConnection(){
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
+      });
+      pc.onicecandidate = (event)=>{
+        if(event.candidate){ socket.send(JSON.stringify({type:'candidate', candidate:event.candidate})); }
+      };
+      pc.ontrack = (event)=>{
+        remoteEl.srcObject = event.streams[0];
+        remoteEl.classList.remove('hidden');
+        localEl.classList.add('hidden');
+        liveBadge.hidden = (role !== 'viewer');
+      };
+      return pc;
+    }
+
+    async function startStreamer(){
+      role = 'streamer';
+      localStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          frameRate: { ideal: 60, max: 60 },
+          width:     { ideal: 1920, max: 1920 },
+          height:    { ideal: 1080, max: 1080 },
+          cursor: 'always'
+        },
+        audio: true
+      });
+
+      localEl.srcObject = localStream;
+      localEl.classList.remove('hidden');
+      remoteEl.classList.add('hidden');
+      liveBadge.hidden = false;
+
+      const vTrack = localStream.getVideoTracks()[0];
+      if (vTrack && 'contentHint' in vTrack) {
+        vTrack.contentHint = contentHintSelect.value; // 'motion' | 'detail'
+      }
+
+      peerConnection = createPeerConnection();
+      localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
+
+      tuneSenderParams(peerConnection, {
+        maxBitrate: 9_000_000,
+        maxFramerate: 60,
+        degradationPreference: 'maintain-framerate'
+      });
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      socket.send(JSON.stringify({ type:'offer', offer }));
+    }
+
+    function startViewer(){
+      role = 'viewer';
+      localEl.classList.add('hidden');
+      remoteEl.classList.add('hidden');
+      peerConnection = createPeerConnection();
+    }
+
+    function stopAll(){
+      try{
+        if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
+        if(peerConnection){
+          peerConnection.getSenders().forEach(s => s.track && s.track.stop());
+          peerConnection.close(); peerConnection = null;
+        }
+      }catch{}
+      localEl.classList.add('hidden');
+      remoteEl.classList.add('hidden');
+      liveBadge.hidden = true; role = null;
+    }
+
+    async function tuneSenderParams(pc, { maxBitrate, maxFramerate, degradationPreference }){
+      const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+      if(!sender) return; const params = sender.getParameters();
+      if(!params.encodings || !params.encodings.length) params.encodings = [{}];
+      if(maxBitrate) params.encodings[0].maxBitrate = maxBitrate; // bps
+      if(maxFramerate) params.encodings[0].maxFramerate = maxFramerate;
+      if(degradationPreference) params.degradationPreference = degradationPreference;
+      try{ await sender.setParameters(params); } catch(e){ console.warn('setParameters failed', e); }
+    }
+
+    function appendMessage(msg){
+      const p = document.createElement('p'); p.textContent = msg;
+      chatMessages.appendChild(p); chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // Enter-to-send via form submit
+    if (chatForm && chatInput) {
+      chatForm.addEventListener('submit', (e)=>{ e.preventDefault(); sendMessage(); });
+    }
+
+    function sendMessage(){
+      const message = chatInput.value.trim(); if(!message) return;
+      socket.send(JSON.stringify({ type:'chat', message }));
+      appendMessage(`You: ${message}`); chatInput.value = '';
+    }
+
+    // Allow live switching of contentHint while streaming
+    contentHintSelect.addEventListener('change', ()=>{
+      if(!localStream) return; const vTrack = localStream.getVideoTracks()[0];
+      if(vTrack && 'contentHint' in vTrack) vTrack.contentHint = contentHintSelect.value;
+    });
+  </script>
+</body>
+</html>
