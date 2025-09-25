@@ -2,10 +2,10 @@ const WebSocket = require('ws');
 const wss = new WebSocket.Server({port: 3000});
 const clientRoles = new Map();
 
-//Viewer count function
+//Viewer count function 
 function broadcastViewerCount() {
   const viewers = [...clientRoles.values()].filter(role => role === 'viewer').length;
-  const payload = JSON.stringify({ type: 'viewercount', count: viewers });
+  const payload = JSON.stringify({ type: 'viewerCount', count: viewers });
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(payload);
@@ -22,7 +22,7 @@ wss.on('connection', (ws) => {
   const msgString = message.toString(); // Ensure it's a string
   const data = JSON.parse(msgString);
   if (data.type === 'role') {
-    clientRoles.set(ws, 'unknown');
+    clientRoles.set(ws, data.role || 'unknown');
     broadcastViewerCount();
     return;
   }
