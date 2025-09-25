@@ -57,11 +57,11 @@ npx http-server
 
 Switching between streaming from PCtoPC and PCtoOther device is enabled by commenting in/out lines 147 & 148. You will have to change the local IP to your own local IP.
 
--If attempting PCtoPC, pen index.html in your browser (x2) via *http://localhost:8080/index.html*
+-If attempting PCtoPC, in your browser open two tabs and go to *http://localhost:8080/index.html* on each tab.
 
--If attempting PCtoOther, on PC via browser go to *http://localhost:8080/index.html*, on other device on broswer go to http://yourlocalip/8080/index.html
+-If attempting PCtoOther, on PC via browser go to *http://localhost:8080/index.html*, on other device on broswer go to *http://yourlocalip/8080/index.html*
 
--Click Start Viewing first 
+-Click Start Viewing *FIRST*
 
 -Click Start Streaming to share your screen.
 
