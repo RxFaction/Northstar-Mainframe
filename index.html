@@ -132,6 +132,7 @@
     const localEl  = document.getElementById('localVideo');
     const remoteEl = document.getElementById('remoteVideo');
     const liveBadge = document.getElementById('liveBadge');
+    const viewerCountEl = document.getElementById('viewerCount');
     const contentHintSelect = document.getElementById('contentHint');
 
     const chatForm  = document.getElementById('chatForm');
@@ -146,12 +147,19 @@
     const socket = new WebSocket('ws://localhost:3000');
     let peerConnection; let localStream; let role = null;
 
-    socket.addEventListener('open', () => console.log('✅ WebSocket connected'));
+    socket.addEventListener('open', () => {
+      console.log('Websocket Connected');
+      sendRoleState();
+    });
     socket.addEventListener('message', onSocketMessage);
 
     async function onSocketMessage(event){
       let raw = event.data; if(raw instanceof Blob) raw = await raw.text();
       const data = JSON.parse(raw);
+      if (data.type === 'viewerCount') {
+        renderViewerCount(data.count);
+        return;
+      }
 
       if (data.type === 'offer') {
         peerConnection = createPeerConnection();
@@ -171,6 +179,16 @@
     }
 
     function createPeerConnection(){
+      function renderViewerCount(total){
+        if (!viewerCountEl) return;
+        const count = Number.isFinite(total) ? total : 0;
+        viewerCountEl.textContent = count === 1 ? '1 viewer' : `${count} viewers`;
+      }
+      function sendRoleState(){
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 'role', role: role || 'unknown'}));
+        }
+      }
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
       });
@@ -188,6 +206,7 @@
 
     async function startStreamer(){
       role = 'streamer';
+      sendRoleState();
       localStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           frameRate: { ideal: 60, max: 60 },
@@ -224,6 +243,7 @@
 
     function startViewer(){
       role = 'viewer';
+      sendRoleState();
       localEl.classList.add('hidden');
       remoteEl.classList.add('hidden');
       peerConnection = createPeerConnection();
@@ -239,7 +259,9 @@
       }catch{}
       localEl.classList.add('hidden');
       remoteEl.classList.add('hidden');
-      liveBadge.hidden = true; role = null;
+      liveBadge.hidden = true;
+      role = null;
+      sendRoleState();
     }
 
     async function tuneSenderParams(pc, { maxBitrate, maxFramerate, degradationPreference }){
