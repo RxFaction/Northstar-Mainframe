@@ -5,22 +5,35 @@ Project Northstar is a prototype peer-to-peer live streaming platform built with
 FEATURES
 
 -Live Streaming over LAN
+
 -Peer-to-Peer Connections 
+
 -WebSocket Signaling Server
+
 -Real-Time Chat
+
 -Simple UI
+
 -Modern Interface
 
 HOW IT WORKS
 
 -Node.js WebSocket Server (index.js)
+
 -Runs on port 3000.
+
 -Relays signaling data (offers, answers, ICE candidates).
+
 -Broadcasts chat messages to all clients.
+
 -Web Client (index.html)
+
 -Connects to the signaling server via WebSocket.
+
 -Streamers share their screen/audio using getDisplayMedia().
+
 -Viewers connect and receive the remote stream via WebRTC.
+
 -Integrated chat system for interaction between participants.
 
 GETTING STARTED
@@ -39,10 +52,14 @@ npm install ws
 -Start the signaling server + HTTP:
 
 node index.js
+
 npx http-server
 
+Switching between streaming from PCtoPC and PCtoOther device is enabled by commenting in/out lines 147 & 148. You will have to change the local IP to your own local IP.
 
--Open index.html in your browser (x2) via *http://localhost:8080/index.html*
+-If attempting PCtoPC, pen index.html in your browser (x2) via *http://localhost:8080/index.html*
+
+-If attempting PCtoOther, on PC via browser go to *http://localhost:8080/index.html*, on other device on broswer go to http://yourlocalip/8080/index.html
 
 -Click Start Viewing first 
 
@@ -51,6 +68,9 @@ npx http-server
 ROADMAP
 
 -Authentication & access control
+
 -Public deployment with HTTPS + secure WebSockets
+
 -Multi-peer scalability (more than 1 viewer per streamer)
+
 -Persistent chat & community features
