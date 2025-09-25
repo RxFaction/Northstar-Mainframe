@@ -49,7 +49,7 @@ cd Northstar-Main
 npm install ws
 
 
--Start the signaling server + HTTP:
+-Start the signaling server + HTTP server via PowerShell x86:
 
 node index.js
 
@@ -74,3 +74,9 @@ ROADMAP
 -Multi-peer scalability (more than 1 viewer per streamer)
 
 -Persistent chat & community features
+
+-UI adjustments on Desktop
+
+-UI overhaul on Mobile
+
+-Find a way to peer 2 peer thousands of viewers to each other simultaneously.
