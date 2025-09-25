@@ -144,8 +144,9 @@
     remoteEl.classList.add('hidden');
 
     // Keep existing one-shot socket connection
-    const socket = new WebSocket('ws://localhost:3000');
-    let peerConnection; let localStream; let role = null;
+    // const socket = new WebSocket('ws://localhost:3000');              //PC to PC on LAN
+    const socket = new WebSocket('ws://192.168.0.143:3000')              //PC to other device on LAN
+    let peerConnection; let localStream; let role = null;  
 
     function renderViewerCount(total){
       if (!viewerCountEl) return;
