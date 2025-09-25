@@ -27,7 +27,7 @@ GETTING STARTED
 
 -Clone this repository:
 
-git clone https://github.com/RxFaction/Northstar-Main.git
+git clone https://github.com/RxFaction/Northstar-Mainframe.git
 cd Northstar-Main
 
 
