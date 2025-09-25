@@ -4,12 +4,12 @@ Project Northstar is a prototype peer-to-peer live streaming platform built with
 
 FEATURES
 
--Live Streaming — Stream your screen or camera to connected viewers.
--Peer-to-Peer Connections — Uses WebRTC for direct media exchange.
--WebSocket Signaling Server — Handles session negotiation and ICE candidates.
--Real-Time Chat — Built-in chat broadcast system for all connected clients.
--Simple UI — One-click “Start Streaming” or “Start Viewing” controls.
--Modern Interface — Dark-themed layout with styled video and chat containers.
+-Live Streaming over LAN
+-Peer-to-Peer Connections 
+-WebSocket Signaling Server
+-Real-Time Chat
+-Simple UI
+-Modern Interface
 
 HOW IT WORKS
 
