@@ -46,14 +46,11 @@ GETTING STARTED
 
 -Clone this repository:
 
-git clone https://github.com/RxFaction/Northstar-Mainframe.git
-cd Northstar-Main
-
+https://github.com/RxFaction/Northstar-Mainframe.git
 
 -Install dependencies:
 
 npm install ws
-
 
 -Start the signaling server + HTTP server via PowerShell x86:
 
