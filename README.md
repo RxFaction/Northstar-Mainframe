@@ -1,6 +1,6 @@
-Project Northstar: A P2P LAN Streaming Platform
+Project Northstar — peer-to-peer live streaming with WebRTC + WebSocket signaling. Zero CDN. Community-first.
 
-Project Northstar is a prototype peer-to-peer live streaming platform built with WebRTC, WebSockets, and Node.js. It enables users to share live video/audio streams directly with viewers, while also providing a lightweight chat system.
+Right now, it's perfect to use for personal in house content streaming between devices. I'm curious to see other uses the community finds!
 
 FEATURES
 
