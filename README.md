@@ -38,7 +38,7 @@ HOW IT WORKS
 
 -Viewers connect and receive the remote stream via WebRTC.
 
--Integrated chat system rhat broadcasts messages to all clients. 
+-Integrated chat system that broadcasts messages to all clients. 
 
 GETTING STARTED
 
