@@ -10,7 +10,7 @@ Right now, it's perfect to use for personal in house content streaming between d
 
 FEATURES
 
--Live Streaming over LAN
+-High Quality Live Streaming over LAN
 
 -Peer-to-Peer Connections 
 
@@ -24,15 +24,13 @@ FEATURES
 
 HOW IT WORKS
 
--Node.js WebSocket Server (index.js)
+-Node.js WebSocket Server (index.js).
 
 -Runs on port 3000.
 
 -Relays signaling data (offers, answers, ICE candidates).
 
--Broadcasts chat messages to all clients.
-
--Web Client (index.html)
+-Web Client (index.html).
 
 -Connects to the signaling server via WebSocket.
 
@@ -40,25 +38,25 @@ HOW IT WORKS
 
 -Viewers connect and receive the remote stream via WebRTC.
 
--Integrated chat system for interaction between participants.
+-Integrated chat system rhat broadcasts messages to all clients. 
 
 GETTING STARTED
 
--Clone this repository:
+-Clone this repository or download newest release:
 
 https://github.com/RxFaction/Northstar-Mainframe.git
 
 -Install dependencies:
 
-npm install ws
+In Powershellx86: npm install ws
 
 -Start the signaling server + HTTP server via PowerShell x86:
 
-node index.js
+node index.js (in one instance)
 
-npx http-server
+npx http-server (in a separate instance)
 
-Switching between streaming from PCtoPC and PCtoOther device is enabled by commenting in/out lines 147 & 148. You will have to change the local IP to your own local IP.
+Switching between streaming from PCtoPC and PCtoOther device is enabled by commenting in/out lines 147 & 148. You will have to change the local IP to your own local IPV4 address.
 
 -If attempting PCtoPC, in your browser open two tabs and go to *http://localhost:8080/index.html* on each tab.
 
