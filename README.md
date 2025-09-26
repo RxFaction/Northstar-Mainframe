@@ -71,12 +71,10 @@ ROADMAP
 
 -Public deployment with HTTPS + secure WebSockets
 
--Multi-peer scalability (more than 1 viewer per streamer)
+-Multi-peer scalability, while maintaining P2P (more than 1 viewer per streamer)
 
 -Persistent chat & community features
 
 -UI adjustments on Desktop
 
 -UI overhaul on Mobile
-
--Find a way to peer 2 peer thousands of viewers to each other simultaneously.
