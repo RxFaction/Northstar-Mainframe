@@ -1,4 +1,4 @@
-Project Northstar — peer-to-peer live streaming with WebRTC + WebSocket signaling. Zero CDN. Community-first.
+Project Northstar: peer-to-peer live streaming with WebRTC + WebSocket signaling. Zero CDN. Community-first.
 
 <img width="2548" height="1386" alt="Northstar Webpage" src="https://github.com/user-attachments/assets/148c3939-b1a0-48ab-a337-24531777ae3f" />
 
