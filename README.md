@@ -50,13 +50,15 @@ https://github.com/RxFaction/Northstar-Mainframe.git
 
 In Powershellx86: npm install ws
 
--Start the signaling server + HTTP server via PowerShell x86:
+-Start the signaling server + HTTP server via two PowerShell x86 windows:
 
-node index.js (in one instance)
+cd northstar>cd server>node index.js
 
-npx http-server (in a separate instance)
+cd northstar>npx http-server
 
-Switching between streaming from PCtoPC and PCtoOther device is enabled by commenting in/out lines 147 & 148. You will have to change the local IP to your own local IPV4 address.
+*IMPORTANT*,: Switching between streaming from PCtoPC and PCtoOther device is enabled by commenting in/out lines 147 & 148. 
+
+*You will have to change the local IP to your own local IPV4 address!*
 
 -If attempting PCtoPC, in your browser open two tabs and go to *http://localhost:8080/index.html* on each tab.
 
