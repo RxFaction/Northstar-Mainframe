@@ -63,7 +63,7 @@
       .chat{max-width:100%;flex-basis:auto}
     }
     .footer-note{margin:24px 0;text-align:center;color:var(--muted);font-size:14px}
-    
+
   </style>
 </head>
 <body>
@@ -102,7 +102,7 @@
           <div class="left meta">
             <div class="brand-logo" style="width:28px;height:28px;border-radius:8px" aria-hidden="true"></div>
             <div>
-              <div class="title" id="streamTitle">v0.5.0-alpha</div>
+              <div class="title" id="streamTitle">v0.5.1-alpha</div>
               <div style="color:var(--muted);font-size:13px">Project Northstar</div>
             </div>
           </div>
@@ -145,9 +145,13 @@
     localEl.classList.add('hidden');
     remoteEl.classList.add('hidden');
 
-    // Keep existing one-shot socket connection
-    // const socket = new WebSocket('ws://localhost:3000');              //PC to PC on LAN
-    const socket = new WebSocket('ws://192.168.0.143:3000')              //PC to other device on LAN
+    // const socket = new WebSocket('ws://localhost:3000');                    // PC to PC on LAN Legacy Fallback
+    // const socket = new WebSocket('ws://192.168.0.145:3000')                 // PC to Other Legacy Fallback
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsHost = window.location.hostname || 'localhost';
+    const wsPort = window.location.port || '3000';
+    const socket = new WebSocket(`${wsProtocol}://${wsHost}:${wsPort}`);      // New auto-detect active LAN address (in testing v0.5.1-alpha)
     let peerConnection; let localStream; let role = null;  
 
     function renderViewerCount(total){
@@ -302,7 +306,6 @@
       if(vTrack && 'contentHint' in vTrack) vTrack.contentHint = contentHintSelect.value;
     });
   </script>
-  <p class='footer-note'>Project Northstar Alpha v2.1: Built with WebRTC, Websocket, and Node.js by RxFaction</p>
+  <p class='footer-note'>Project Northstar Alpha v0.5.1-alpha: Built with WebRTC, Websocket, and Nodejs by RxFaction</p>
 </body>
 </html>
-
