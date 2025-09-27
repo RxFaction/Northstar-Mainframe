@@ -72,7 +72,7 @@ ROADMAP
 
 -Authentication & access control
 
--Public deployment with HTTPS + secure WebSockets
+-Public deployment with HTTPS + Force Websocket Secure (currently WS only over LAN)
 
 -Multi-peer scalability, while maintaining P2P (more than 1 viewer per streamer)
 
