@@ -1,4 +1,4 @@
-# Visual Studio Code workspace settings
+# Visual Studio Code workspace settings 
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
@@ -12,4 +12,3 @@
 .vscode-test/
 .code-search
 .history/
-
