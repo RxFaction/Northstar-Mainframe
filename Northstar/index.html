@@ -151,7 +151,7 @@
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const wsHost = window.location.hostname || 'localhost';
     const wsPort = window.location.port || '3000';
-    const socket = new WebSocket(`${wsProtocol}://${wsHost}:${wsPort}`);      // New auto-detect active LAN address (in testing v0.5.1-alpha)
+    const socket = new WebSocket(`${wsProtocol}://${wsHost}:${wsPort}`);      // New auto-detect active user IPV4 address (in testing v0.5.1-alpha)
     let peerConnection; let localStream; let role = null;  
 
     function renderViewerCount(total){
@@ -309,3 +309,4 @@
   <p class='footer-note'>Project Northstar Alpha v0.5.1-alpha: Built with WebRTC, Websocket, and Nodejs by RxFaction</p>
 </body>
 </html>
+
