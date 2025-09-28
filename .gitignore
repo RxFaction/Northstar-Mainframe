@@ -1,0 +1,15 @@
+# Visual Studio Code workspace settings
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# VS Code workspace files
+*.code-workspace
+
+# VS Code extension data
+.vscode-test/
+.code-search
+.history/
+
