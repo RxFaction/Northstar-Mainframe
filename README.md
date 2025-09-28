@@ -52,9 +52,9 @@ In Powershellx86: npm install ws
 
 -Start the signaling server + HTTP server via two seperate PowerShell x86 windows:
 
-cd Northstar-Mainframe-0.5.2-alpha > cd Northstar-Mainframe-0.5.2-alpha > cd server > cd node index.js
+cd Northstar-Mainframe-0.5.2-alpha > cd Northstar-Mainframe-0.5.2-alpha > cd Northstar > cd server > node index.js
 
-cd Northstar-Mainframe-0.5.2-alpha > cd Northstar-Mainframe-0.5.2-alpha > npx http-server
+cd Northstar-Mainframe-0.5.2-alpha > cd Northstar-Mainframe-0.5.2-alpha > cd Northstar > npx http-server
 
 To start streaming, on PC via browser go to *http://localhost:8080/index.html*, on other device via broswer go to *http://yourlocalipv4address:8080/index.html*
 
