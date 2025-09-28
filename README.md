@@ -56,13 +56,7 @@ cd northstar>cd server>node index.js
 
 cd northstar>npx http-server
 
-*IMPORTANT*: Switching between streaming from PCtoPC and PCtoOther device is enabled by commenting in/out lines 147 & 148. 
-
-*You will have to change the local IP to your own local IPV4 address!*
-
--If attempting PCtoPC, in your browser open two tabs and go to *http://localhost:8080/index.html* on each tab.
-
--If attempting PCtoOther, on PC via browser go to *http://localhost:8080/index.html*, on other device via broswer go to *http://yourlocalip:8080/index.html*
+To start streaming, on PC via browser go to *http://localhost:8080/index.html*, on other device via broswer go to *http://yourlocalip:8080/index.html*
 
 -Click Start Viewing *FIRST*
 
