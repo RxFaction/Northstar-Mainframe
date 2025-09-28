@@ -123,7 +123,7 @@
       </header>
       <div class="messages" id="chatMessages" aria-live="polite"></div>
       <form id="chatForm" autocomplete="off">
-        <input type="text" id="chatInput" placeholder="Type a message…" />
+        <input type="text" id="chatInput" placeholder="Type a messageâ€¦" />
         <button type="submit" class="btn primary">Send</button>
       </form>
     </aside>
@@ -150,8 +150,8 @@
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const wsHost = window.location.hostname || 'localhost';
-    const wsPort = window.location.port || '3000';
-    const socket = new WebSocket(`${wsProtocol}://${wsHost}:${wsPort}`);      // New auto-detect active user IPV4 address (in testing v0.5.1-alpha)
+    const wsPort = '3000';                                                    // Signaling server stays on 3000 even when HTTP host runs on another port
+    const socket = new WebSocket(`${wsProtocol}://${wsHost}:${wsPort}`);      // New auto-detect active LAN address (in testing v0.5.1-alpha)
     let peerConnection; let localStream; let role = null;  
 
     function renderViewerCount(total){
@@ -309,4 +309,3 @@
   <p class='footer-note'>Project Northstar Alpha v0.5.1-alpha: Built with WebRTC, Websocket, and Nodejs by RxFaction</p>
 </body>
 </html>
-
