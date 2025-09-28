@@ -42,7 +42,7 @@ HOW IT WORKS
 
 GETTING STARTED
 
--Clone this repository or download newest release:
+-Clone this repository or download the newest release:
 
 https://github.com/RxFaction/Northstar-Mainframe.git
 
@@ -50,11 +50,11 @@ https://github.com/RxFaction/Northstar-Mainframe.git
 
 In Powershellx86: npm install ws
 
--Start the signaling server + HTTP server via two PowerShell x86 windows:
+-Start the signaling server + HTTP server via two seperate PowerShell x86 windows:
 
-cd northstar>cd server>node index.js
+cd Northstar-Mainframe-0.5.2-alpha > cd Northstar-Mainframe-0.5.2-alpha > cd server > cd node index.js
 
-cd northstar>npx http-server
+cd Northstar-Mainframe-0.5.2-alpha > cd Northstar-Mainframe-0.5.2-alpha > npx http-server
 
 To start streaming, on PC via browser go to *http://localhost:8080/index.html*, on other device via broswer go to *http://yourlocalipv4address:8080/index.html*
 
