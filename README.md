@@ -56,7 +56,7 @@ cd northstar>cd server>node index.js
 
 cd northstar>npx http-server
 
-To start streaming, on PC via browser go to *http://localhost:8080/index.html*, on other device via broswer go to *http://yourlocalip:8080/index.html*
+To start streaming, on PC via browser go to *http://localhost:8080/index.html*, on other device via broswer go to *http://yourlocalipv4address:8080/index.html*
 
 -Click Start Viewing *FIRST*
 
