@@ -1,10 +1,10 @@
 Project Northstar: peer-to-peer live streaming with WebRTC + WebSocket signaling. Zero CDN. Community-first.
 
-<img width="2548" height="1386" alt="Northstar Webpage" src="https://github.com/user-attachments/assets/148c3939-b1a0-48ab-a337-24531777ae3f" />
+<img width="2549" height="1378" alt="Webpage" src="https://github.com/user-attachments/assets/8d87217e-4517-4597-bd4c-72d9b2c9d60f" />
 
-<img width="1106" height="624" alt="Http Server" src="https://github.com/user-attachments/assets/434be842-5f05-4099-bc9f-460cd3e8e880" />
+<img width="1113" height="629" alt="httpserver" src="https://github.com/user-attachments/assets/4fbfb901-0c91-4add-ad2b-7df67813330b" />
 
-<img width="1111" height="621" alt="Node JS" src="https://github.com/user-attachments/assets/98a3e5c1-e909-42ae-a3ea-bed57a327ba3" />
+<img width="1111" height="620" alt="nodejsserver" src="https://github.com/user-attachments/assets/9e825215-7383-4b54-b6d9-9fdc613609e0" />
 
 Right now, it's perfect to use for personal in house content streaming between devices. I'm curious to see other uses the community finds!
 
