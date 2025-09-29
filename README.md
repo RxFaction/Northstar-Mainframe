@@ -10,7 +10,7 @@ Right now, it's perfect to use for personal in house content streaming between d
 
 FEATURES
 
--High Quality Live Streaming over LAN
+-High Quality Live Streaming over LAN (WAN in testing, coming soon!)
 
 -Peer-to-Peer Connections 
 
@@ -48,6 +48,8 @@ https://github.com/RxFaction/Northstar-Mainframe.git
 
 -Install dependencies:
 
+Install nodejs https://nodejs.org/en
+
 In Powershellx86: npm install ws
 
 -Start the signaling server + HTTP server via two seperate PowerShell x86 windows:
@@ -56,6 +58,8 @@ cd Northstar-Mainframe-0.5.2-alpha > cd Northstar-Mainframe-0.5.2-alpha > cd Nor
 
 cd Northstar-Mainframe-0.5.2-alpha > cd Northstar-Mainframe-0.5.2-alpha > cd Northstar > npx http-server
 
+Feel free to simplify directory names to make it a tad easier.
+
 To start streaming, on PC via browser go to *http://localhost:8080/index.html*, on other device via broswer go to *http://yourlocalipv4address:8080/index.html*
 
 -Click Start Viewing *FIRST*
@@ -63,6 +67,8 @@ To start streaming, on PC via browser go to *http://localhost:8080/index.html*, 
 -Click Start Streaming to share your screen.
 
 ROADMAP
+
+-WAN deployment (in development and testing)
 
 -Authentication & access control
 
