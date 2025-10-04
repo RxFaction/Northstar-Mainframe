@@ -14,8 +14,6 @@ FEATURES
 
 -Peer-to-Peer Connections 
 
--WebSocket Signaling Server
-
 -Real-Time Chat
 
 -Simple UI
