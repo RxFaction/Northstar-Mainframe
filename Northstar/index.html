@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Project Northstar</title>
   <style>
+    /* Global theme tokens */
     :root {
       --bg:#0f1117; --panel:#171923; --panel-2:#1e2130;
       --text:#e6e6f0; --muted:#9aa0b4; --accent:#8b5cf6; --accent-2:#22d3ee;
@@ -78,6 +79,13 @@
     .overlay{position:absolute;bottom:12px;left:12px;right:12px;display:flex;justify-content:space-between;gap:12px}
     .meta{display:flex;gap:10px;align-items:center;padding:12px;background:var(--panel);border-radius:var(--radius);border:1px solid rgba(255,255,255,.06);box-shadow:0 10px 26px var(--shadow)}
     .meta .title{font-weight:700}
+    .settings-wrapper{position:absolute;bottom:18px;right:18px;display:flex;flex-direction:column;align-items:flex-end;gap:12px}
+    .icon-btn{width:40px;height:40px;padding:0;border-radius:50%;display:grid;place-items:center}
+    .icon-btn svg{width:18px;height:18px;fill:#fff;opacity:.8;transition:opacity .2s ease}
+    .icon-btn:hover svg{opacity:1}
+    .settings-panel{width:240px;padding:14px;background:var(--panel);border-radius:12px;border:1px solid rgba(255,255,255,.08);box-shadow:0 12px 28px var(--shadow);display:flex;flex-direction:column;gap:12px}
+    .settings-panel label{display:flex;flex-direction:column;font-size:13px;color:var(--muted);gap:6px}
+    .settings-panel select{width:100%;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:#111320;color:var(--text)}
 
     /* Chat */
     .chat{flex:0 0 360px;max-width:360px;display:flex;flex-direction:column;gap:10px;background:var(--panel);border-radius:var(--radius);padding:12px;box-shadow:0 12px 32px var(--shadow);border:1px solid rgba(255,255,255,.06);min-height:0}
@@ -89,6 +97,16 @@
     .chat button[type="submit"]{padding:10px 14px}
 
     .hidden{display:none !important}
+    .notice{
+      margin:12px 20px 0;
+      padding:10px 14px;
+      border-radius:var(--radius);
+      background:rgba(239,68,68,.14);
+      border:1px solid rgba(239,68,68,.35);
+      color:#fca5a5;
+      font-size:14px;
+      line-height:1.4;
+    }
 
     @media (max-width:980px){ 
       .layout{flex-direction:column}
@@ -99,7 +117,7 @@
   </style>
 </head>
 <body>
-  <!-- Topbar -->
+  <!-- Top bar with brand and quick role actions -->
   <nav class="topbar">
     <div class="brand">
       <div class="brand-logo" aria-hidden="true">
@@ -116,8 +134,11 @@
       <button class="btn" onclick="stopAll()">Stop</button>
     </div>
   </nav>
+  <div class="notice hidden" id="secureWarning">
+    Screen sharing requires serving Northstar over <strong>https://</strong>. Enable HTTPS on the host or access it via localhost to share your screen.
+  </div>
 
-  <!--Main Layout-->
+  <!-- Main layout: stream stage + settings on the left, chat on the right -->
   <main class="layout">
     <section class="stage" aria-label="Stream stage">
       <div class="video-shell">
@@ -134,15 +155,46 @@
           <div class="left meta">
             <div class="brand-logo" style="width:28px;height:28px;border-radius:8px" aria-hidden="true"></div>
             <div>
-              <div class="title" id="streamTitle">v0.5.2-alpha</div>                                                <!--Version tracker-->
+              <div class="title" id="streamTitle">v0.6.0-alpha</div>                                                <!--Version tracker-->
               <div style="color:var(--muted);font-size:13px">Project Northstar</div>
             </div>
           </div>
-          <div class="right">
-            <select id="contentHint" class="btn" title="Quality Hint">
-              <option value="motion">Smoother Motion</option>
-              <option value="detail" selected>Sharper Text</option>
-            </select>
+          <div class="right"></div>
+        </div>
+      </div>
+      <!-- Collapsible settings gear + panel for advanced stream controls -->
+      <div class="settings-wrapper">
+        <button id="settingsToggle" class="btn icon-btn" type="button" aria-label="Open stream settings" aria-expanded="false" aria-controls="streamSettings">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.4.11-.6l-1.92-3.32c-.12-.21-.38-.3-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.486.486 0 0 0 14.39 2h-3.78c-.24 0-.45.17-.48.4l-.36 2.54c-.59.22-1.14.52-1.63.94l-2.39-.96a.485.485 0 0 0-.6.22L3.23 8.46a.5.5 0 0 0 .11.6l2.03 1.58c-.04.31-.07.64-.07.96 0 .32.03.63.07.94l-2.03 1.58a.5.5 0 0 0-.11.6l1.92 3.32c.12.21.38.3.6.22l2.39-.96c.49.41 1.04.75 1.63.94l.36 2.54c.03.23.24.4.48.4h3.78c.24 0 .45-.17.48-.4l.36-2.54c.59-.22 1.14-.53 1.63-.94l2.39.96c.22.09.48-.01.6-.22l1.92-3.32a.5.5 0 0 0-.11-.6l-2.03-1.58ZM12 15.5c-1.93 0-3.5-1.57-3.5-3.5S10.07 8.5 12 8.5s3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5Z"/>
+          </svg>
+        </button>
+        <div class="settings-panel hidden" id="streamSettings" role="group" aria-label="Stream settings" tabindex="-1">
+          <div class="settings-row">
+            <label for="qualityProfile">Quality preset
+              <select id="qualityProfile" title="Streaming Quality">
+                <option value="1080p60" selected>1080p 60fps</option>
+                <option value="720p60">720p 60fps</option>
+                <option value="720p30">720p 30fps</option>
+              </select>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label for="codecProfile">Codec preference
+              <select id="codecProfile" title="Codec Preference">
+                <option value="auto" selected>Auto Codec</option>
+                <option value="vp9">Prefer VP9</option>
+                <option value="h264">Prefer H.264</option>
+              </select>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label for="contentHint">Content hint
+              <select id="contentHint" title="Quality Hint">
+                <option value="motion">Smoother Motion</option>
+                <option value="detail" selected>Sharper Text</option>
+              </select>
+            </label>
           </div>
         </div>
       </div>
@@ -161,6 +213,7 @@
     </aside>
   </main>
 
+  <!-- App logic: WebRTC signaling, capture controls, and chat -->
   <script>
     // References & initial state
     const localEl  = document.getElementById('localVideo');
@@ -168,23 +221,56 @@
     const liveBadge = document.getElementById('liveBadge');
     const viewerCountEl = document.getElementById('viewerCount');
     const contentHintSelect = document.getElementById('contentHint');
+    const settingsToggle = document.getElementById('settingsToggle');
+    const settingsPanel = document.getElementById('streamSettings');
+    const codecSelect = document.getElementById('codecProfile');
+    const qualitySelect = document.getElementById('qualityProfile');
 
     const chatForm  = document.getElementById('chatForm');
     const chatInput = document.getElementById('chatInput');
     const chatMessages = document.getElementById('chatMessages');
+    const secureWarning = document.getElementById('secureWarning');
+
+    // Quality + bitrate presets that mirror the gear dropdown
+    const QUALITY_PROFILES = {
+      '1080p60': { width: 1920, height: 1080, frameRate: 60, bitrate: 12_000_000, minBitrate: 8_000_000, degradationPreference: 'maintain-resolution', scalabilityMode: 'L1T3' },
+      '720p60':  { width: 1280, height: 720, frameRate: 60, bitrate: 7_000_000,  minBitrate: 4_000_000, degradationPreference: 'maintain-resolution', scalabilityMode: 'L1T3' },
+      '720p30':  { width: 1280, height: 720, frameRate: 30, bitrate: 4_000_000,  minBitrate: 2_500_000, degradationPreference: 'maintain-resolution', scalabilityMode: 'L1T2' }
+    };
+    // Optional codec overrides (auto falls back to browser defaults)
+    const CODEC_PREFERENCES = {
+      auto: null,
+      vp9: 'video/VP9',
+      h264: 'video/H264'
+    };
+
+    // Screen capture is only allowed on HTTPS (or localhost) so warn early
+    const SECURE_CONTEXT_OK = window.isSecureContext || ['localhost','127.0.0.1','::1'].includes(window.location.hostname);
+    if (!SECURE_CONTEXT_OK && secureWarning) {
+      secureWarning.classList.remove('hidden');
+    }
+
+    function closeSettingsPanel(){
+      if (!settingsPanel || settingsPanel.classList.contains('hidden')) return;
+      settingsPanel.classList.add('hidden');
+      settingsToggle?.setAttribute('aria-expanded','false');
+    }
 
     // Hide both videos on load
     localEl.classList.add('hidden');
     remoteEl.classList.add('hidden');
 
-    // const socket = new WebSocket('ws://localhost:3000');                    // PC to PC on LAN Legacy Fallback
-    // const socket = new WebSocket('ws://192.168.0.145:3000')                 // PC to Other Legacy Fallback
-
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const wsHost = window.location.hostname || 'localhost';
     const wsPort = '3000';                                                    // Signaling server stays on 3000 even when HTTP host runs on another port
     const socket = new WebSocket(`${wsProtocol}://${wsHost}:${wsPort}`);      // New auto-detect active LAN address (in testing v0.5.1-alpha)
-    let peerConnection; let localStream; let role = null;  
+    let peerConnection;
+    let localStream;
+    let micStream;
+    let role = null;
+    let screenShareAlertShown = false;
+    let currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['1080p60'];
+    let currentCodecPreference = codecSelect?.value || 'auto';
 
     function renderViewerCount(total){
       if (!viewerCountEl) return;
@@ -198,7 +284,44 @@
       }
     }
 
+    // Let the streamer adjust resolution/bitrate while live
+    qualitySelect?.addEventListener('change', async ()=>{
+      currentQualityProfile = QUALITY_PROFILES[qualitySelect.value] || QUALITY_PROFILES['1080p60'];
+      if (!localStream) return;
+      const vTrack = localStream.getVideoTracks()[0];
+      if (!vTrack) return;
+      await applyQualityConstraints(vTrack, currentQualityProfile);
+      await tuneSenderParams(peerConnection, currentQualityProfile, vTrack);
+    });
 
+    // Prompt streamer to restart if codec preference changes mid-stream
+    codecSelect?.addEventListener('change', ()=>{
+      currentCodecPreference = codecSelect.value || 'auto';
+      if (role === 'streamer') {
+        alert('Codec preference updated. Stop and Go Live again to apply the new codec.');
+      }
+    });
+    // Settings gear toggle + dismiss handlers
+    settingsToggle?.addEventListener('click', (event)=>{
+      event.stopPropagation();
+      if (!settingsPanel) return;
+      const hidden = settingsPanel.classList.toggle('hidden');
+      settingsToggle.setAttribute('aria-expanded', String(!hidden));
+      if (!hidden) {
+        settingsPanel.focus();
+      }
+    });
+    document.addEventListener('click', (event)=>{
+      if (!settingsPanel || settingsPanel.classList.contains('hidden')) return;
+      if (settingsPanel.contains(event.target) || settingsToggle?.contains(event.target)) return;
+      closeSettingsPanel();
+    });
+    document.addEventListener('keydown', event=>{
+      if (event.key === 'Escape') closeSettingsPanel();
+    });
+
+
+    // WebSocket lifecycle + signalling messages
     socket.addEventListener('open', () => {
       console.log('Websocket Connected');
       sendRoleState();
@@ -214,22 +337,44 @@
       }
 
       if (data.type === 'offer') {
+        if (peerConnection && peerConnection.signalingState !== 'closed') {
+          try { peerConnection.close(); } catch {}
+        }
         peerConnection = createPeerConnection();
         await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
         socket.send(JSON.stringify({ type: 'answer', answer }));
+        return;
       }
       if (data.type === 'answer') {
-        if (peerConnection) await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+        if (!peerConnection) return;
+        if (peerConnection.signalingState !== 'have-local-offer') {
+          console.warn('Ignoring unexpected answer in state', peerConnection.signalingState);
+          return;
+        }
+        try {
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } catch (err) {
+          console.warn('Failed to apply remote answer', err);
+        }
+        return;
+      }
+      if (data.type === 'request-offer') {
+        if (role === 'streamer' && localStream) {
+          await buildAndSendOffer({ iceRestart: true });
+        }
+        return;
       }
       if (data.type === 'candidate' && peerConnection) {
         try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); }
         catch (e) { console.error('Error adding ICE candidate', e); }
+        return;
       }
       if (data.type === 'chat') { appendMessage(data.message); }
     }
 
+    // Create a new RTCPeerConnection and wire up ICE + remote media handling
     function createPeerConnection(){
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
@@ -238,49 +383,97 @@
         if(event.candidate){ socket.send(JSON.stringify({type:'candidate', candidate:event.candidate})); }
       };
       pc.ontrack = (event)=>{
-        remoteEl.srcObject = event.streams[0];
+        let inboundStream = remoteEl.srcObject;
+        if (!(inboundStream instanceof MediaStream)) {
+          inboundStream = new MediaStream();
+        }
+        if (!inboundStream.getTracks().includes(event.track)) {
+          inboundStream.addTrack(event.track);
+        }
+        remoteEl.srcObject = inboundStream;
         remoteEl.classList.remove('hidden');
         localEl.classList.add('hidden');
         liveBadge.hidden = (role !== 'viewer');
+        const playPromise = remoteEl.play?.();
+        if (playPromise && typeof playPromise.then === 'function') {
+          playPromise.catch(()=>{});
+        }
       };
       return pc;
     }
 
+    // Start capture as streamer (display + optional microphone)
     async function startStreamer(){
-      role = 'streamer';
-      sendRoleState();
-      localStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          frameRate: { ideal: 60, max: 60 },
-          width:     { ideal: 1920, max: 1920 },
-          height:    { ideal: 1080, max: 1080 },
-          cursor: 'always'
-        },
-        audio: true
-      });
-
-      localEl.srcObject = localStream;
-      localEl.classList.remove('hidden');
-      remoteEl.classList.add('hidden');
-      liveBadge.hidden = false;
-
-      const vTrack = localStream.getVideoTracks()[0];
-      if (vTrack && 'contentHint' in vTrack) {
-        vTrack.contentHint = contentHintSelect.value; // 'motion' | 'detail'
+      if (!SECURE_CONTEXT_OK) {
+        if (!screenShareAlertShown) {
+          alert('Screen sharing requires a secure context (HTTPS or localhost). Enable HTTPS on the host and reload.');
+          screenShareAlertShown = true;
+        }
+        return;
       }
 
-      peerConnection = createPeerConnection();
-      localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
+      try {
+        closeSettingsPanel();
+        currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['1080p60'];
+        currentCodecPreference = codecSelect?.value || 'auto';
+        const qualityConstraints = buildQualityConstraints(currentQualityProfile);
 
-      tuneSenderParams(peerConnection, {
-        maxBitrate: 9_000_000,
-        maxFramerate: 60,
-        degradationPreference: 'maintain-framerate'
-      });
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { ...qualityConstraints.video, cursor: 'always' },
+          audio: true
+        });
 
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      socket.send(JSON.stringify({ type:'offer', offer }));
+        localStream = stream;
+        micStream = null;
+        try{
+          // Request mic audio so viewers hear commentary in addition to the screen share
+          micStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              sampleRate: 48000
+            }
+          });
+        }catch(err){
+          console.warn('Microphone capture failed or was denied', err);
+        }
+        role = 'streamer';
+        sendRoleState();
+
+        localEl.srcObject = localStream;
+        localEl.classList.remove('hidden');
+        remoteEl.classList.add('hidden');
+        liveBadge.hidden = false;
+
+        const vTrack = localStream.getVideoTracks()[0];
+        if (vTrack) {
+          if ('contentHint' in vTrack) {
+            vTrack.contentHint = contentHintSelect.value; // 'motion' | 'detail'
+          }
+          await applyQualityConstraints(vTrack, currentQualityProfile);
+        }
+
+        await buildAndSendOffer();
+      } catch (err) {
+        console.error('Failed to start streaming', err);
+        liveBadge.hidden = true;
+        localEl.classList.add('hidden');
+        role = null;
+        sendRoleState();
+        if(micStream){
+          micStream.getTracks().forEach(t=>t.stop());
+          micStream = null;
+        }
+        if(localStream){
+          localStream.getTracks().forEach(t=>t.stop());
+          localStream = null;
+        }
+
+        const message = err && err.name === 'NotAllowedError'
+          ? 'Screen share permission was denied. Please allow access and try again.'
+          : 'Unable to start screen sharing. Verify HTTPS is enabled and browser permissions are granted.';
+        alert(message);
+      }
     }
 
     function startViewer(){
@@ -289,11 +482,13 @@
       localEl.classList.add('hidden');
       remoteEl.classList.add('hidden');
       peerConnection = createPeerConnection();
+      requestOfferFromStreamer();
     }
 
     function stopAll(){
       try{
         if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
+        if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream = null; }
         if(peerConnection){
           peerConnection.getSenders().forEach(s => s.track && s.track.stop());
           peerConnection.close(); peerConnection = null;
@@ -306,14 +501,124 @@
       sendRoleState();
     }
 
-    async function tuneSenderParams(pc, { maxBitrate, maxFramerate, degradationPreference }){
-      const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
-      if(!sender) return; const params = sender.getParameters();
+    function buildQualityConstraints(profile){
+      return {
+        video: {
+          frameRate: profile?.frameRate ? { ideal: profile.frameRate, max: profile.frameRate } : undefined,
+          width: profile?.width ? { ideal: profile.width, max: profile.width } : undefined,
+          height: profile?.height ? { ideal: profile.height, max: profile.height } : undefined
+        }
+      };
+    }
+
+    async function applyQualityConstraints(track, profile){
+      if (!track || typeof track.applyConstraints !== 'function') return;
+      const constraints = {};
+      if (profile?.width) constraints.width = profile.width;
+      if (profile?.height) constraints.height = profile.height;
+      if (profile?.frameRate) constraints.frameRate = { ideal: profile.frameRate, max: profile.frameRate };
+      try{
+        await track.applyConstraints(constraints);
+      }catch(e){
+        console.warn('applyConstraints failed, stream may exceed target profile', e);
+      }
+    }
+
+    async function applyCodecPreference(pc, codecKey){
+      if (!pc || typeof RTCRtpSender === 'undefined' || !RTCRtpSender.getCapabilities) return;
+      const mime = CODEC_PREFERENCES[codecKey];
+      if (!mime) return;
+      const capabilities = RTCRtpSender.getCapabilities('video');
+      if (!capabilities || !capabilities.codecs || !capabilities.codecs.length) return;
+      const lowerMime = mime.toLowerCase();
+      const preferred = capabilities.codecs.filter(c => c.mimeType.toLowerCase() === lowerMime);
+      if (!preferred.length) {
+        console.warn(`Codec ${mime} not supported on this browser`);
+        return;
+      }
+      const others = capabilities.codecs.filter(c => c.mimeType.toLowerCase() !== lowerMime);
+      const order = [...preferred, ...others];
+      pc.getTransceivers().forEach(trans => {
+        if (trans.sender?.track?.kind === 'video' && typeof trans.setCodecPreferences === 'function') {
+          try {
+            trans.setCodecPreferences(order);
+          } catch (e) {
+            console.warn('Failed to apply codec preferences', e);
+          }
+        }
+      });
+    }
+
+    // Streamer helper - rebuild connection and push fresh SDP offer
+    async function buildAndSendOffer({ iceRestart = false } = {}){
+      if (!localStream) return;
+      const videoTrack = localStream.getVideoTracks()[0] || null;
+
+      if (peerConnection) {
+        try { peerConnection.close(); } catch {}
+      }
+
+      peerConnection = createPeerConnection();
+      getOutboundTracks().forEach(({ track, stream }) => peerConnection.addTrack(track, stream));
+      await applyCodecPreference(peerConnection, currentCodecPreference);
+      await tuneSenderParams(peerConnection, currentQualityProfile, videoTrack);
+
+      const offer = await peerConnection.createOffer({ iceRestart });
+      await peerConnection.setLocalDescription(offer);
+      socket.send(JSON.stringify({ type:'offer', offer }));
+    }
+
+    // Viewer helper - ask the active streamer to send a new offer
+    function requestOfferFromStreamer(){
+      const payload = JSON.stringify({ type: 'request-offer' });
+      if (!socket) return;
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(payload);
+      } else {
+        const once = () => {
+          socket.send(payload);
+        };
+        socket.addEventListener('open', once, { once: true });
+      }
+    }
+
+    async function tuneSenderParams(pc, profile, track){
+      const sender = pc && pc.getSenders().find(s => s.track && s.track.kind === 'video');
+      if(!sender) return;
+      const params = sender.getParameters();
       if(!params.encodings || !params.encodings.length) params.encodings = [{}];
-      if(maxBitrate) params.encodings[0].maxBitrate = maxBitrate; // bps
-      if(maxFramerate) params.encodings[0].maxFramerate = maxFramerate;
-      if(degradationPreference) params.degradationPreference = degradationPreference;
+      const enc = params.encodings[0];
+
+      if(profile?.bitrate) enc.maxBitrate = profile.bitrate;
+      if(profile?.minBitrate) enc.minBitrate = profile.minBitrate;
+      if(profile?.frameRate) enc.maxFramerate = profile.frameRate;
+      if(profile?.scalabilityMode) enc.scalabilityMode = profile.scalabilityMode;
+      enc.scaleResolutionDownBy = 1;
+
+      if (track && typeof track.getSettings === 'function' && profile?.width) {
+        const settings = track.getSettings();
+        if (settings && settings.width && settings.width > profile.width) {
+          const scale = settings.width / profile.width;
+          if (scale > 1.05) enc.scaleResolutionDownBy = scale;
+        }
+      }
+
+      params.degradationPreference = profile?.degradationPreference || 'maintain-resolution';
+      enc.priority = 'high';
+      enc.networkPriority = 'high';
+
       try{ await sender.setParameters(params); } catch(e){ console.warn('setParameters failed', e); }
+    }
+
+    function getOutboundTracks(){
+      const tracks = [];
+      if (localStream) {
+        localStream.getTracks().forEach(track => tracks.push({ track, stream: localStream }));
+      }
+      if (micStream) {
+        micStream.getAudioTracks().forEach(track => tracks.push({ track, stream: micStream }));
+      }
+      return tracks;
     }
 
     function appendMessage(msg){
@@ -338,6 +643,6 @@
       if(vTrack && 'contentHint' in vTrack) vTrack.contentHint = contentHintSelect.value;
     });
   </script>
-  <p class='footer-note'>Project Northstar v0.5.2-Alpha: Built with WebRTC, Websocket, and Nodejs by RxFaction</p>
+  <p class='footer-note'>Project Northstar v0.6.0-Alpha: Built with WebRTC, Websocket, and Nodejs by RxFaction</p>
 </body>
 </html>
