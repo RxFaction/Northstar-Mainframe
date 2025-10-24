@@ -1,7 +1,6 @@
 # Project Northstar
 Peer-to-peer live streaming with WebRTC + WebSocket signaling. Zero CDN. Community-first.
 
-https://github.com/user-attachments/assets/f546fb32-3b13-4f62-905d-50ba1f145ecf
 <img width="2548" height="1386" alt="Northstar Webpage" src="https://github.com/user-attachments/assets/148c3939-b1a0-48ab-a337-24531777ae3f" />
 <img width="1106" height="624" alt="HTTP Server" src="https://github.com/user-attachments/assets/434be842-5f05-4099-bc9f-460cd3e8e880" />
 <img width="1111" height="621" alt="Node JS" src="https://github.com/user-attachments/assets/98a3e5c1-e909-42ae-a3ea-bed57a327ba3" />
@@ -11,6 +10,7 @@ https://github.com/user-attachments/assets/f546fb32-3b13-4f62-905d-50ba1f145ecf
 - Smoother reconnects: viewers can refresh/join mid-stream and automatically recover the feed.
 - Gear-driven stream settings (quality presets + codec preference) hidden until you need them.
 - Higher bitrate defaults with min-bitrate guards for sharper text and fewer artifacts.
+- Mixed screen + microphone audio capture so viewers hear everything without extra setup.
 
 ## Features
 - High quality live streaming over LAN and WAN.
@@ -55,6 +55,7 @@ Then accept the self-signed certificate on first visit and use `https://<host>:3
 
 ### Using Northstar
 - Click **Join as Viewer** on the receiving device, then **Go Live** on the streaming device.
+- When you click Go Live, allow the browser's prompt for screen and (optionally) microphone capture so viewers receive audio.
 - Open the gear icon in the bottom-right of the stream window to tune quality presets. 720p/60fps remains the balanced default; 1080p/60fps is available if your network/GPU can handle it.
 - Inside the same menu you can pick a codec preference. VP9 usually gives sharper text, while H.264 can help older or mobile hardware. Restart the stream after changing codec to apply it.
 - Viewers can refresh or reconnect mid-stream; the streamer automatically reissues an offer so playback resumes without restarting the broadcast.
@@ -65,4 +66,3 @@ Then accept the self-signed certificate on first visit and use `https://<host>:3
 - Multi-peer scalability while keeping a P2P core (more than one viewer per streamer).
 - Persistent chat & community features.
 - UI refinements on desktop and a mobile-first layout overhaul.
-
