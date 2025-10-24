@@ -1,84 +1,68 @@
-Project Northstar: peer-to-peer live streaming with WebRTC + WebSocket signaling. Zero CDN. Community-first.
+# Project Northstar
+Peer-to-peer live streaming with WebRTC + WebSocket signaling. Zero CDN. Community-first.
 
 https://github.com/user-attachments/assets/f546fb32-3b13-4f62-905d-50ba1f145ecf
+<img width="2548" height="1386" alt="Northstar Webpage" src="https://github.com/user-attachments/assets/148c3939-b1a0-48ab-a337-24531777ae3f" />
+<img width="1106" height="624" alt="HTTP Server" src="https://github.com/user-attachments/assets/434be842-5f05-4099-bc9f-460cd3e8e880" />
+<img width="1111" height="621" alt="Node JS" src="https://github.com/user-attachments/assets/98a3e5c1-e909-42ae-a3ea-bed57a327ba3" />
 
+## 0.6.0-alpha Highlights
+- Combined HTTP + WebSocket server with optional HTTPS (no extra static host required).
+- Smoother reconnects: viewers can refresh/join mid-stream and automatically recover the feed.
+- Gear-driven stream settings (quality presets + codec preference) hidden until you need them.
+- Higher bitrate defaults with min-bitrate guards for sharper text and fewer artifacts.
 
-<img width="2549" height="1378" alt="Webpage" src="https://github.com/user-attachments/assets/8d87217e-4517-4597-bd4c-72d9b2c9d60f" />
+## Features
+- High quality live streaming over LAN and WAN.
+- Peer-to-peer connections with WebRTC.
+- WebSocket signaling server.
+- Real-time chat overlay.
+- Selectable streaming quality presets (1080p/720p).
+- Codec preference toggle (Auto / VP9 / H.264) for better clarity or compatibility.
+- Simple, modern UI with quick role switching.
 
-<img width="1113" height="629" alt="httpserver" src="https://github.com/user-attachments/assets/4fbfb901-0c91-4add-ad2b-7df67813330b" />
+## How It Works
+- **Server (`server/index.js`)** - Node.js HTTP + WebSocket server on port 3000 serves the page and relays signaling (offers, answers, ICE candidates).
+- **Client (`index.html`)** - Connects via WebSocket, captures screens with `getDisplayMedia()`, and sets up WebRTC peer connections for stream and chat.
+- **Role awareness** - Streamers broadcast role state so viewer counts stay accurate; viewers can request a fresh offer if they reconnect.
 
-<img width="1111" height="620" alt="nodejsserver" src="https://github.com/user-attachments/assets/9e825215-7383-4b54-b6d9-9fdc613609e0" />
+## Getting Started
+1. Clone this repository or download the latest release: https://github.com/RxFaction/Northstar-Mainframe.git
+2. Install dependencies (Node.js 18+ recommended):
+   ```bash
+   npm install
+   ```
+3. Start the combined HTTP + WebSocket server (from repo root):
+   ```bash
+   npm start
+   ```
+   The app will be live at `http://<host>:3000` and signaling reuses that port.
 
-Right now, it's perfect to use for personal in house content streaming between devices. I'm curious to see other uses the community finds!
+### Enable HTTPS (required for remote screen sharing)
+```bash
+mkdir -p server/certs
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout server/certs/key.pem \
+  -out server/certs/cert.pem \
+  -subj "/CN=your-hostname"
+USE_HTTPS=1 npm start
+```
+On Windows PowerShell run:
+```powershell
+New-Item -ItemType Directory -Path server/certs -Force
+```
+Then accept the self-signed certificate on first visit and use `https://<host>:3000` on every device.
 
-FEATURES
+### Using Northstar
+- Click **Join as Viewer** on the receiving device, then **Go Live** on the streaming device.
+- Open the gear icon in the bottom-right of the stream window to tune quality presets. 720p/60fps remains the balanced default; 1080p/60fps is available if your network/GPU can handle it.
+- Inside the same menu you can pick a codec preference. VP9 usually gives sharper text, while H.264 can help older or mobile hardware. Restart the stream after changing codec to apply it.
+- Viewers can refresh or reconnect mid-stream; the streamer automatically reissues an offer so playback resumes without restarting the broadcast.
 
--High Quality Live Streaming over LAN (WAN in testing, coming soon!)
+## Roadmap
+- Authentication & access control.
+- Public deployment with HTTPS + enforced Secure WebSockets.
+- Multi-peer scalability while keeping a P2P core (more than one viewer per streamer).
+- Persistent chat & community features.
+- UI refinements on desktop and a mobile-first layout overhaul.
 
--Peer-to-Peer Connections 
-
--Real-Time Chat
-
--Simple UI
-
--Modern Interface
-
-HOW IT WORKS
-
--Node.js WebSocket Server (index.js).
-
--Runs on port 3000.
-
--Relays signaling data (offers, answers, ICE candidates).
-
--Web Client (index.html).
-
--Connects to the signaling server via WebSocket.
-
--Streamers share their screen/audio using getDisplayMedia().
-
--Viewers connect and receive the remote stream via WebRTC.
-
--Integrated chat system that broadcasts messages to all clients. 
-
-GETTING STARTED
-
--Clone this repository or download the newest release:
-
-https://github.com/RxFaction/Northstar-Mainframe.git
-
--Install dependencies:
-
-Install nodejs https://nodejs.org/en
-
-In Powershellx86: npm install ws
-
--Start the signaling server + HTTP server via two seperate PowerShell x86 windows:
-
-cd Northstar-Mainframe-0.5.2-alpha > cd Northstar-Mainframe-0.5.2-alpha > cd Northstar > cd server > node index.js
-
-cd Northstar-Mainframe-0.5.2-alpha > cd Northstar-Mainframe-0.5.2-alpha > cd Northstar > npx http-server
-
-Feel free to simplify directory names to make it a tad easier.
-
-To start streaming, on PC via browser go to *http://localhost:8080/index.html*, on other device via broswer go to *http://yourlocalipv4address:8080/index.html*
-
--Click Start Viewing *FIRST*
-
--Click Start Streaming to share your screen.
-
-ROADMAP
-
--WAN deployment (in development and testing)
-
--Authentication & access control
-
--Public deployment with HTTPS + Force Websocket Secure (currently WS only over LAN)
-
--Multi-peer scalability, while maintaining P2P (more than 1 viewer per streamer)
-
--Persistent chat & community features
-
--UI adjustments on Desktop
-
--UI overhaul on Mobile
