@@ -1,7 +1,8 @@
 # Project Northstar
 Peer-to-peer live streaming with WebRTC + WebSocket signaling. Zero CDN. Community-first.
 
-
+<img width="438" height="76" alt="image" src="https://github.com/user-attachments/assets/081acd31-82d4-4536-bf35-17c5b0177f21" />
+<img width="2554" height="1209" alt="image" src="https://github.com/user-attachments/assets/905b87fb-f75b-41e3-8690-94ee67566e85" />
 
 ## 0.6.0-alpha Highlights
 - Combined HTTP + WebSocket server with optional HTTPS (no extra static host required).
