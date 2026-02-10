@@ -112,6 +112,31 @@
       .layout{flex-direction:column}
       .chat{max-width:100%;flex-basis:auto}
     }
+
+    /* Mobile UI (auto-enabled via JS) */
+    body.mobile .topbar{flex-wrap:wrap;gap:10px;padding:10px 14px}
+    body.mobile .brand h1{font-size:16px}
+    body.mobile .pill{font-size:11px;padding:4px 8px}
+    body.mobile .top-actions{width:100%;display:grid;grid-template-columns:repeat(3, minmax(0,1fr));gap:8px}
+    body.mobile .btn{padding:8px 10px;font-size:13px;border-radius:10px}
+    body.mobile .layout{padding:12px 12px 16px}
+    body.mobile .stage{gap:10px}
+    body.mobile .video-shell{aspect-ratio:auto;height:min(56vh, 420px)}
+    body.mobile .overlay{left:10px;right:10px;bottom:10px}
+    body.mobile .meta{padding:10px}
+    body.mobile .chat{max-width:none;min-height:200px;max-height:40vh}
+    body.mobile .chat .messages{max-height:26vh}
+    body.mobile .chat input[type="text"]{font-size:14px}
+
+    /* Landscape phone: favor video height */
+    body.mobile.landscape .video-shell{height:min(50vh, 340px)}
+    body.mobile.landscape .chat{max-height:34vh}
+
+    /* Mobile footer spacing (avoid overlapping chat input) */
+    body.mobile .layout{padding-bottom:12px}
+    body.mobile .chat{margin-bottom:8px}
+    body.mobile .footer-note{margin:8px 0 0;padding:0 8px calc(8px + env(safe-area-inset-bottom));font-size:12px}
+    body.mobile.keyboard-open .footer-note{display:none}
     .footer-note{margin:24px 0;text-align:center;color:var(--muted);font-size:14px}
 
   </style>
@@ -151,16 +176,6 @@
           <span class="pill" id="viewerCount">0 viewers</span>
         </div>
 
-        <div class="overlay">
-          <div class="left meta">
-            <div class="brand-logo" style="width:28px;height:28px;border-radius:8px" aria-hidden="true"></div>
-            <div>
-              <div class="title" id="streamTitle">v0.7.0-alpha</div>                                                <!--Version tracker-->
-              <div style="color:var(--muted);font-size:13px">Project Northstar</div>
-            </div>
-          </div>
-          <div class="right"></div>
-        </div>
       </div>
       <!-- Collapsible settings gear + panel for advanced stream controls -->
       <div class="settings-wrapper">
@@ -230,6 +245,49 @@
     const chatInput = document.getElementById('chatInput');
     const chatMessages = document.getElementById('chatMessages');
     const secureWarning = document.getElementById('secureWarning');
+    const footerNote = document.querySelector('.footer-note');
+    const chatPanel = document.querySelector('.chat');
+
+    // Mobile UI detection (class-based styling)
+    const bodyEl = document.body;
+    function updateViewportClasses(){
+      const isCoarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+      const isNarrow = window.innerWidth <= 980;
+      const isMobile = isCoarse || isNarrow;
+      const isLandscape = window.matchMedia && window.matchMedia('(orientation: landscape)').matches && window.innerHeight <= 520;
+      if (isMobile) bodyEl.classList.add('mobile'); else bodyEl.classList.remove('mobile');
+      if (isMobile && isLandscape) bodyEl.classList.add('landscape'); else bodyEl.classList.remove('landscape');
+      if (footerNote && chatPanel) {
+        if (isMobile && footerNote.parentElement !== chatPanel) {
+          chatPanel.appendChild(footerNote);
+        } else if (!isMobile && footerNote.parentElement !== bodyEl) {
+          bodyEl.appendChild(footerNote);
+        }
+      }
+    }
+    updateViewportClasses();
+    window.addEventListener('resize', updateViewportClasses);
+    window.addEventListener('orientationchange', updateViewportClasses);
+
+    // Mobile keyboard handling (iOS Chrome/Safari)
+    function updateKeyboardClass(){
+      if (!bodyEl.classList.contains('mobile')) {
+        bodyEl.classList.remove('keyboard-open');
+        return;
+      }
+      const vv = window.visualViewport;
+      if (vv) {
+        const delta = window.innerHeight - vv.height;
+        if (delta > 120) bodyEl.classList.add('keyboard-open');
+        else bodyEl.classList.remove('keyboard-open');
+      }
+    }
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', updateKeyboardClass);
+      window.visualViewport.addEventListener('scroll', updateKeyboardClass);
+    }
+    chatInput?.addEventListener('focus', () => bodyEl.classList.add('keyboard-open'));
+    chatInput?.addEventListener('blur', () => bodyEl.classList.remove('keyboard-open'));
 
     // Quality + bitrate presets that mirror the gear dropdown
     const QUALITY_PROFILES = {
