@@ -65,6 +65,10 @@ if (USE_HTTPS) {
 
 const wss = new WebSocket.Server({ server });
 const clientRoles = new Map();
+const clientIds = new Map();
+const clientsById = new Map();
+let streamerId = null;
+let clientCounter = 0;
 
 function broadcastViewerCount() {
   const viewers = [...clientRoles.values()].filter(role => role === 'viewer').length;
@@ -77,14 +81,30 @@ function broadcastViewerCount() {
   });
 }
 
+function sendToClient(id, payload) {
+  const client = clientsById.get(id);
+  if (client && client.readyState === WebSocket.OPEN) {
+    client.send(payload);
+  }
+}
+
+function getClientId(ws) {
+  return clientIds.get(ws) || null;
+}
+
 wss.on('connection', ws => {
   console.log('[Northstar] New client connected');
   clientRoles.set(ws, 'unknown');
+  const id = `c${++clientCounter}`;
+  clientIds.set(ws, id);
+  clientsById.set(id, ws);
+  ws.send(JSON.stringify({ type: 'hello', id }));
   broadcastViewerCount();
 
   ws.on('message', message => {
     const msgString = message.toString();
     let data;
+    const senderId = getClientId(ws);
 
     try {
       data = JSON.parse(msgString);
@@ -94,7 +114,24 @@ wss.on('connection', ws => {
     }
 
     if (data.type === 'role') {
-      clientRoles.set(ws, data.role || 'unknown');
+      const role = data.role || 'unknown';
+      const prevRole = clientRoles.get(ws) || 'unknown';
+      clientRoles.set(ws, role);
+      if (role === 'streamer') {
+        streamerId = senderId;
+        wss.clients.forEach(client => {
+          if (client !== ws && client.readyState === WebSocket.OPEN && clientRoles.get(client) === 'viewer') {
+            client.send(JSON.stringify({ type: 'streamer-ready', id: streamerId }));
+          }
+        });
+      } else if (prevRole === 'streamer' && streamerId === senderId) {
+        streamerId = null;
+        wss.clients.forEach(client => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({ type: 'streamer-left' }));
+          }
+        });
+      }
       broadcastViewerCount();
       return;
     }
@@ -108,16 +145,84 @@ wss.on('connection', ws => {
       return;
     }
 
-    wss.clients.forEach(client => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(msgString);
+    if (data.type === 'request-offer') {
+      if (!streamerId) {
+        sendToClient(senderId, JSON.stringify({ type: 'streamer-offline' }));
+        return;
       }
-    });
+      sendToClient(streamerId, JSON.stringify({
+        type: 'request-offer',
+        viewerId: senderId,
+        from: senderId
+      }));
+      return;
+    }
+
+    if (data.type === 'offer') {
+      const targetId = data.to || data.viewerId;
+      if (!targetId) return;
+      sendToClient(targetId, JSON.stringify({
+        type: 'offer',
+        offer: data.offer,
+        from: senderId,
+        to: targetId
+      }));
+      return;
+    }
+
+    if (data.type === 'answer') {
+      const targetId = data.to || streamerId;
+      if (!targetId) return;
+      sendToClient(targetId, JSON.stringify({
+        type: 'answer',
+        answer: data.answer,
+        from: senderId,
+        to: targetId
+      }));
+      return;
+    }
+
+    if (data.type === 'candidate') {
+      const targetId = data.to || null;
+      if (!targetId) {
+        if (clientRoles.get(ws) === 'viewer' && streamerId) {
+          sendToClient(streamerId, JSON.stringify({
+            type: 'candidate',
+            candidate: data.candidate,
+            from: senderId,
+            to: streamerId
+          }));
+        }
+        return;
+      }
+      sendToClient(targetId, JSON.stringify({
+        type: 'candidate',
+        candidate: data.candidate,
+        from: senderId,
+        to: targetId
+      }));
+      return;
+    }
   });
 
   ws.on('close', () => {
     console.log('[Northstar] Client disconnected');
+    const id = getClientId(ws);
     clientRoles.delete(ws);
+    clientIds.delete(ws);
+    if (id) {
+      clientsById.delete(id);
+    }
+    if (streamerId && id && streamerId === id) {
+      streamerId = null;
+      wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({ type: 'streamer-left' }));
+        }
+      });
+    } else if (streamerId && id) {
+      sendToClient(streamerId, JSON.stringify({ type: 'peer-left', viewerId: id }));
+    }
     broadcastViewerCount();
   });
 
