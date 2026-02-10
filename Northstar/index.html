@@ -155,7 +155,7 @@
           <div class="left meta">
             <div class="brand-logo" style="width:28px;height:28px;border-radius:8px" aria-hidden="true"></div>
             <div>
-              <div class="title" id="streamTitle">v0.6.0-alpha</div>                                                <!--Version tracker-->
+              <div class="title" id="streamTitle">v0.7.0-alpha</div>                                                <!--Version tracker-->
               <div style="color:var(--muted);font-size:13px">Project Northstar</div>
             </div>
           </div>
@@ -264,10 +264,13 @@
     const wsHost = window.location.hostname || 'localhost';
     const wsPort = '3000';                                                    // Signaling server stays on 3000 even when HTTP host runs on another port
     const socket = new WebSocket(`${wsProtocol}://${wsHost}:${wsPort}`);      // New auto-detect active LAN address (in testing v0.5.1-alpha)
+    const peerConnections = new Map();
     let peerConnection;
     let localStream;
     let micStream;
     let role = null;
+    let clientId = null;
+    let streamerId = null;
     let screenShareAlertShown = false;
     let currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['1080p60'];
     let currentCodecPreference = codecSelect?.value || 'auto';
@@ -291,7 +294,11 @@
       const vTrack = localStream.getVideoTracks()[0];
       if (!vTrack) return;
       await applyQualityConstraints(vTrack, currentQualityProfile);
-      await tuneSenderParams(peerConnection, currentQualityProfile, vTrack);
+      if (role === 'streamer') {
+        for (const pc of peerConnections.values()) {
+          await tuneSenderParams(pc, currentQualityProfile, vTrack);
+        }
+      }
     });
 
     // Prompt streamer to restart if codec preference changes mid-stream
@@ -331,30 +338,53 @@
     async function onSocketMessage(event){
       let raw = event.data; if(raw instanceof Blob) raw = await raw.text();
       const data = JSON.parse(raw);
+      if (data.type === 'hello') {
+        clientId = data.id || clientId;
+        return;
+      }
       if (data.type === 'viewerCount') {
         renderViewerCount(data.count);
         return;
       }
+      if (data.type === 'streamer-ready') {
+        if (data.id) streamerId = data.id;
+        if (role === 'viewer') requestOfferFromStreamer();
+        return;
+      }
+      if (data.type === 'streamer-left') {
+        if (role === 'viewer') cleanupViewerConnection();
+        return;
+      }
+      if (data.type === 'peer-left') {
+        if (role === 'streamer') {
+          const viewerId = data.viewerId || data.id;
+          if (viewerId) closeStreamerPeer(viewerId);
+        }
+        return;
+      }
+      if (data.type === 'streamer-offline') {
+        return;
+      }
 
       if (data.type === 'offer') {
-        if (peerConnection && peerConnection.signalingState !== 'closed') {
-          try { peerConnection.close(); } catch {}
-        }
-        peerConnection = createPeerConnection();
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        socket.send(JSON.stringify({ type: 'answer', answer }));
+        if (role !== 'viewer') return;
+        if (data.to && clientId && data.to !== clientId) return;
+        streamerId = data.from || streamerId;
+        await handleViewerOffer(data.offer);
         return;
       }
       if (data.type === 'answer') {
-        if (!peerConnection) return;
-        if (peerConnection.signalingState !== 'have-local-offer') {
-          console.warn('Ignoring unexpected answer in state', peerConnection.signalingState);
+        if (role !== 'streamer') return;
+        const viewerId = data.from || data.viewerId;
+        if (!viewerId) return;
+        const pc = peerConnections.get(viewerId);
+        if (!pc) return;
+        if (pc.signalingState !== 'have-local-offer') {
+          console.warn('Ignoring unexpected answer in state', pc.signalingState);
           return;
         }
         try {
-          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+          await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
         } catch (err) {
           console.warn('Failed to apply remote answer', err);
         }
@@ -362,25 +392,40 @@
       }
       if (data.type === 'request-offer') {
         if (role === 'streamer' && localStream) {
-          await buildAndSendOffer({ iceRestart: true });
+          const viewerId = data.viewerId || data.from;
+          if (viewerId) await buildAndSendOfferForViewer(viewerId, { iceRestart: true });
         }
         return;
       }
-      if (data.type === 'candidate' && peerConnection) {
-        try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); }
-        catch (e) { console.error('Error adding ICE candidate', e); }
-        return;
+      if (data.type === 'candidate') {
+        if (role === 'streamer') {
+          const viewerId = data.from || data.viewerId;
+          const pc = viewerId ? peerConnections.get(viewerId) : null;
+          if (!pc) return;
+          try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); }
+          catch (e) { console.error('Error adding ICE candidate', e); }
+          return;
+        }
+        if (role === 'viewer' && peerConnection) {
+          if (data.to && clientId && data.to !== clientId) return;
+          if (streamerId && data.from && data.from !== streamerId) return;
+          try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); }
+          catch (e) { console.error('Error adding ICE candidate', e); }
+          return;
+        }
       }
       if (data.type === 'chat') { appendMessage(data.message); }
     }
 
-    // Create a new RTCPeerConnection and wire up ICE + remote media handling
-    function createPeerConnection(){
+    // Create a new RTCPeerConnection for viewer
+    function createViewerPeerConnection(targetId){
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
       });
       pc.onicecandidate = (event)=>{
-        if(event.candidate){ socket.send(JSON.stringify({type:'candidate', candidate:event.candidate})); }
+        if(event.candidate && targetId){
+          socket.send(JSON.stringify({ type:'candidate', candidate:event.candidate, to: targetId, from: clientId }));
+        }
       };
       pc.ontrack = (event)=>{
         let inboundStream = remoteEl.srcObject;
@@ -402,6 +447,61 @@
       return pc;
     }
 
+    // Create a new RTCPeerConnection for streamer
+    function createStreamerPeerConnection(viewerId){
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
+      });
+      pc.onicecandidate = (event)=>{
+        if(event.candidate && viewerId){
+          socket.send(JSON.stringify({ type:'candidate', candidate:event.candidate, to: viewerId, from: clientId }));
+        }
+      };
+      pc.oniceconnectionstatechange = ()=>{
+        if (['failed', 'disconnected', 'closed'].includes(pc.iceConnectionState)) {
+          closeStreamerPeer(viewerId);
+        }
+      };
+      return pc;
+    }
+
+    function closeStreamerPeer(viewerId){
+      const pc = peerConnections.get(viewerId);
+      if (!pc) return;
+      try { pc.close(); } catch {}
+      peerConnections.delete(viewerId);
+    }
+
+    function closeAllStreamerPeers(){
+      for (const viewerId of Array.from(peerConnections.keys())) {
+        closeStreamerPeer(viewerId);
+      }
+    }
+
+    function cleanupViewerConnection(){
+      if (peerConnection) {
+        try { peerConnection.close(); } catch {}
+        peerConnection = null;
+      }
+      remoteEl.srcObject = null;
+      remoteEl.classList.add('hidden');
+      liveBadge.hidden = true;
+      streamerId = null;
+    }
+
+    async function handleViewerOffer(offer){
+      if (peerConnection && peerConnection.signalingState !== 'closed') {
+        try { peerConnection.close(); } catch {}
+      }
+      peerConnection = createViewerPeerConnection(streamerId);
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      const payload = { type: 'answer', answer, from: clientId };
+      if (streamerId) payload.to = streamerId;
+      socket.send(JSON.stringify(payload));
+    }
+
     // Start capture as streamer (display + optional microphone)
     async function startStreamer(){
       if (!SECURE_CONTEXT_OK) {
@@ -414,6 +514,7 @@
 
       try {
         closeSettingsPanel();
+        closeAllStreamerPeers();
         currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['1080p60'];
         currentCodecPreference = codecSelect?.value || 'auto';
         const qualityConstraints = buildQualityConstraints(currentQualityProfile);
@@ -438,6 +539,7 @@
           console.warn('Microphone capture failed or was denied', err);
         }
         role = 'streamer';
+        streamerId = null;
         sendRoleState();
 
         localEl.srcObject = localStream;
@@ -452,8 +554,6 @@
           }
           await applyQualityConstraints(vTrack, currentQualityProfile);
         }
-
-        await buildAndSendOffer();
       } catch (err) {
         console.error('Failed to start streaming', err);
         liveBadge.hidden = true;
@@ -479,9 +579,10 @@
     function startViewer(){
       role = 'viewer';
       sendRoleState();
+      streamerId = null;
+      cleanupViewerConnection();
       localEl.classList.add('hidden');
       remoteEl.classList.add('hidden');
-      peerConnection = createPeerConnection();
       requestOfferFromStreamer();
     }
 
@@ -489,15 +590,14 @@
       try{
         if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
         if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream = null; }
-        if(peerConnection){
-          peerConnection.getSenders().forEach(s => s.track && s.track.stop());
-          peerConnection.close(); peerConnection = null;
-        }
+        closeAllStreamerPeers();
+        cleanupViewerConnection();
       }catch{}
       localEl.classList.add('hidden');
       remoteEl.classList.add('hidden');
       liveBadge.hidden = true;
       role = null;
+      streamerId = null;
       sendRoleState();
     }
 
@@ -549,34 +649,37 @@
       });
     }
 
-    // Streamer helper - rebuild connection and push fresh SDP offer
-    async function buildAndSendOffer({ iceRestart = false } = {}){
-      if (!localStream) return;
+    // Streamer helper - build connection per viewer and push SDP offer
+    async function buildAndSendOfferForViewer(viewerId, { iceRestart = false } = {}){
+      if (!localStream || !viewerId) return;
       const videoTrack = localStream.getVideoTracks()[0] || null;
 
-      if (peerConnection) {
-        try { peerConnection.close(); } catch {}
+      const existing = peerConnections.get(viewerId);
+      if (existing) {
+        try { existing.close(); } catch {}
       }
 
-      peerConnection = createPeerConnection();
-      getOutboundTracks().forEach(({ track, stream }) => peerConnection.addTrack(track, stream));
-      await applyCodecPreference(peerConnection, currentCodecPreference);
-      await tuneSenderParams(peerConnection, currentQualityProfile, videoTrack);
+      const pc = createStreamerPeerConnection(viewerId);
+      peerConnections.set(viewerId, pc);
+      getOutboundTracks().forEach(({ track, stream }) => pc.addTrack(track, stream));
+      await applyCodecPreference(pc, currentCodecPreference);
+      await tuneSenderParams(pc, currentQualityProfile, videoTrack);
 
-      const offer = await peerConnection.createOffer({ iceRestart });
-      await peerConnection.setLocalDescription(offer);
-      socket.send(JSON.stringify({ type:'offer', offer }));
+      const offer = await pc.createOffer({ iceRestart });
+      await pc.setLocalDescription(offer);
+      socket.send(JSON.stringify({ type:'offer', offer, to: viewerId, from: clientId }));
     }
 
     // Viewer helper - ask the active streamer to send a new offer
     function requestOfferFromStreamer(){
-      const payload = JSON.stringify({ type: 'request-offer' });
+      const payload = { type: 'request-offer' };
+      if (clientId) payload.viewerId = clientId;
       if (!socket) return;
       if (socket.readyState === WebSocket.OPEN) {
-        socket.send(payload);
+        socket.send(JSON.stringify(payload));
       } else {
         const once = () => {
-          socket.send(payload);
+          socket.send(JSON.stringify(payload));
         };
         socket.addEventListener('open', once, { once: true });
       }
@@ -643,6 +746,6 @@
       if(vTrack && 'contentHint' in vTrack) vTrack.contentHint = contentHintSelect.value;
     });
   </script>
-  <p class='footer-note'>Project Northstar v0.6.0-Alpha: Built with WebRTC, Websocket, and Nodejs by RxFaction</p>
+  <p class='footer-note'>Project Northstar v0.7.0-Alpha: Built with WebRTC, Websocket, and Nodejs by RxFaction</p>
 </body>
 </html>
