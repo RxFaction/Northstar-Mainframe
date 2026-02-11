@@ -40,7 +40,6 @@ Self-hostable P2P live streaming with WebRTC + WebSocket signaling. Zero CDN. Co
    openssl req -x509 -nodes -days 365 -newkey rsa:2048 `
      -keyout .\certs\key.pem `
      -out .\certs\cert.pem `
-     -subj "/CN=your-hostname"
    ```
    If you use your own certs, set `SSL_KEY` and `SSL_CERT` instead.
 
@@ -58,7 +57,6 @@ Self-hostable P2P live streaming with WebRTC + WebSocket signaling. Zero CDN. Co
    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
      -keyout ./certs/key.pem \
      -out ./certs/cert.pem \
-     -subj "/CN=your-hostname"
    ```
    If you use your own certs, set `SSL_KEY` and `SSL_CERT` instead.
 
