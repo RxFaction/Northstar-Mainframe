@@ -124,8 +124,8 @@
     body.mobile .video-shell{aspect-ratio:auto;height:min(56vh, 420px)}
     body.mobile .overlay{left:10px;right:10px;bottom:10px}
     body.mobile .meta{padding:10px}
-    body.mobile .chat{max-width:none;min-height:200px;max-height:40vh}
-    body.mobile .chat .messages{max-height:26vh}
+    body.mobile .chat{max-width:none;min-height:200px;max-height:40vh;overflow:hidden}
+    body.mobile .chat .messages{max-height:none}
     body.mobile .chat input[type="text"]{font-size:14px}
 
     /* Landscape phone: favor video height */
@@ -227,6 +227,8 @@
       </form>
     </aside>
   </main>
+
+  <p class='footer-note'>Project Northstar v0.7.0-Alpha: Built with WebRTC, Websocket, and Nodejs by RxFaction</p>
 
   <!-- App logic: WebRTC signaling, capture controls, and chat -->
   <script>
@@ -804,6 +806,5 @@
       if(vTrack && 'contentHint' in vTrack) vTrack.contentHint = contentHintSelect.value;
     });
   </script>
-  <p class='footer-note'>Project Northstar v0.7.0-Alpha: Built with WebRTC, Websocket, and Nodejs by RxFaction</p>
 </body>
 </html>
