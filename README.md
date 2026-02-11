@@ -51,7 +51,7 @@ Self-hostable peer2peer live streaming with WebRTC + WebSocket signaling. Zero C
    cd ./Northstar/server
    npm install
    ```
-4. (Optional, recommended for remote screen sharing) Create TLS certs:
+4. (Optional, recommended for remote screen sharing using HTTPS) Create TLS certs:
    ```bash
    mkdir -p ./certs
    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
