@@ -1,7 +1,7 @@
 # Project Northstar
 Self-hostable P2P live streaming with WebRTC + WebSocket signaling. Zero CDN. Community-first.
 
-<img width="438" height="76" alt="image" src="https://github.com/user-attachments/assets/081acd31-82d4-4536-bf35-17c5b0177f21" />
+<img width="881" height="243" alt="image" src="https://github.com/user-attachments/assets/7355e663-e7d0-4e6f-8dd5-726d6a82c094" />
 <img width="2554" height="1209" alt="image" src="https://github.com/user-attachments/assets/905b87fb-f75b-41e3-8690-94ee67566e85" />
 
 ## 0.7.0-alpha Highlights
