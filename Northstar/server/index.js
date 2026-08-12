@@ -8,40 +8,46 @@ const HTTP_PORT = process.env.PORT || 3000;
 const USE_HTTPS = String(process.env.USE_HTTPS || '').toLowerCase() === 'true' || process.env.USE_HTTPS === '1';
 const SSL_KEY_PATH = process.env.SSL_KEY || path.join(__dirname, 'certs', 'key.pem');
 const SSL_CERT_PATH = process.env.SSL_CERT || path.join(__dirname, 'certs', 'cert.pem');
-const ROOT_DIR = path.join(__dirname, '..');
-const MIME_TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon'
-};
+const INDEX_FILE = path.join(__dirname, '..', 'index.html');
 
 function handleRequest(req, res) {
-  const urlPath = req.url === '/' ? '/index.html' : decodeURI(req.url);
-  const safePath = path.normalize(urlPath).replace(/^(\.\.[/\\])+/, '');
-  const filePath = path.join(ROOT_DIR, safePath);
-
-  if (!filePath.startsWith(ROOT_DIR)) {
-    res.writeHead(403);
-    res.end('Forbidden');
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405, { Allow: 'GET, HEAD' });
+    res.end('Method Not Allowed');
     return;
   }
 
-  fs.readFile(filePath, (err, data) => {
+  let pathname;
+  try {
+    pathname = new URL(req.url, 'http://localhost').pathname;
+  } catch {
+    res.writeHead(400);
+    res.end('Bad Request');
+    return;
+  }
+
+  // Northstar currently has one self-contained browser asset. Keep the HTTP
+  // surface explicitly allowlisted so server source, package files, and TLS
+  // credentials can never be reached through the static-file handler.
+  if (pathname !== '/' && pathname !== '/index.html') {
+    res.writeHead(404);
+    res.end('Not Found');
+    return;
+  }
+
+  fs.readFile(INDEX_FILE, (err, data) => {
     if (err) {
-      res.writeHead(404);
-      res.end('Not Found');
+      console.error('[Northstar] Failed to read index.html', err);
+      res.writeHead(500);
+      res.end('Internal Server Error');
       return;
     }
-    const ext = path.extname(filePath).toLowerCase();
-    res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
-    res.end(data);
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': data.length,
+      'X-Content-Type-Options': 'nosniff'
+    });
+    res.end(req.method === 'HEAD' ? undefined : data);
   });
 }
 
