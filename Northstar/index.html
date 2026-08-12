@@ -326,6 +326,18 @@
     const MAX_PENDING_ICE_CANDIDATES = 128;
     const LEGACY_NEGOTIATION_ID = 'legacy';
     const LEGACY_CONNECTION_ID = 'legacy-connection';
+    const LIFECYCLE_STATES = Object.freeze({
+      IDLE: 'idle',
+      CAPTURING: 'capturing',
+      PUBLISHING: 'publishing',
+      VIEWING: 'viewing',
+      STOPPING: 'stopping'
+    });
+    const LIFECYCLE_MODES = Object.freeze({
+      IDLE: 'idle',
+      STREAMER: 'streamer',
+      VIEWER: 'viewer'
+    });
     const peerConnections = new Map();
     const streamerRecoveryTimers = new Map();
     const streamerNegotiationTasks = new Map();
@@ -342,6 +354,11 @@
     let localStream;
     let micStream;
     let role = null;
+    let lifecycleState = LIFECYCLE_STATES.IDLE;
+    let requestedLifecycleMode = LIFECYCLE_MODES.IDLE;
+    let lifecycleTask = null;
+    let captureGeneration = 0;
+    let activeCaptureGeneration = 0;
     let clientId = null;
     let streamerId = null;
     let requestedViewerConnectionId = null;
@@ -350,6 +367,7 @@
     let screenShareAlertShown = false;
     let currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['1080p60'];
     let currentCodecPreference = codecSelect?.value || 'auto';
+    bodyEl.dataset.lifecycleState = lifecycleState;
 
     function renderViewerCount(total){
       if (!viewerCountEl) return;
@@ -1160,103 +1178,232 @@
       socket.send(JSON.stringify(payload));
     }
 
-    // Start capture as streamer (display + optional microphone)
-    async function startStreamer(){
-      if (!SECURE_CONTEXT_OK) {
-        if (!screenShareAlertShown) {
-          alert('Screen sharing requires a secure context (HTTPS or localhost). Enable HTTPS on the host and reload.');
-          screenShareAlertShown = true;
-        }
-        return;
+    function setLifecycleState(nextState){
+      const allowedTransitions = {
+        [LIFECYCLE_STATES.IDLE]: [LIFECYCLE_STATES.CAPTURING, LIFECYCLE_STATES.VIEWING],
+        [LIFECYCLE_STATES.CAPTURING]: [LIFECYCLE_STATES.PUBLISHING, LIFECYCLE_STATES.STOPPING],
+        [LIFECYCLE_STATES.PUBLISHING]: [LIFECYCLE_STATES.STOPPING],
+        [LIFECYCLE_STATES.VIEWING]: [LIFECYCLE_STATES.STOPPING],
+        [LIFECYCLE_STATES.STOPPING]: [LIFECYCLE_STATES.IDLE]
+      };
+      if (
+        nextState !== lifecycleState
+        && !allowedTransitions[lifecycleState]?.includes(nextState)
+      ) {
+        throw new Error(`Invalid lifecycle transition: ${lifecycleState} -> ${nextState}`);
       }
+      lifecycleState = nextState;
+      bodyEl.dataset.lifecycleState = nextState;
+    }
+
+    function lifecycleMatchesRequestedMode(){
+      return (
+        (requestedLifecycleMode === LIFECYCLE_MODES.IDLE && lifecycleState === LIFECYCLE_STATES.IDLE)
+        || (requestedLifecycleMode === LIFECYCLE_MODES.STREAMER && lifecycleState === LIFECYCLE_STATES.PUBLISHING)
+        || (requestedLifecycleMode === LIFECYCLE_MODES.VIEWER && lifecycleState === LIFECYCLE_STATES.VIEWING)
+      );
+    }
+
+    function stopMediaTracks(...streams){
+      const stoppedTracks = new Set();
+      for (const stream of streams) {
+        if (!stream || typeof stream.getTracks !== 'function') continue;
+        for (const track of stream.getTracks()) {
+          if (stoppedTracks.has(track)) continue;
+          stoppedTracks.add(track);
+          try { track.stop(); } catch (error) {
+            console.warn('Failed to stop media track', error);
+          }
+        }
+      }
+    }
+
+    async function stopLifecycleResources(){
+      if (lifecycleState === LIFECYCLE_STATES.IDLE) return;
+      setLifecycleState(LIFECYCLE_STATES.STOPPING);
+      activeCaptureGeneration = 0;
+
+      role = null;
+      sendRoleState();
+      closeAllStreamerPeers();
+      cleanupViewerConnection();
+
+      const displayStream = localStream;
+      const microphoneStream = micStream;
+      localStream = null;
+      micStream = null;
+      localEl.srcObject = null;
+      stopMediaTracks(displayStream, microphoneStream);
+
+      localEl.classList.add('hidden');
+      remoteEl.classList.add('hidden');
+      liveBadge.hidden = true;
+      streamerId = null;
+      setLifecycleState(LIFECYCLE_STATES.IDLE);
+    }
+
+    function enterViewerMode(){
+      setLifecycleState(LIFECYCLE_STATES.VIEWING);
+      role = 'viewer';
+      streamerId = null;
+      sendRoleState();
+      localEl.srcObject = null;
+      localEl.classList.add('hidden');
+      remoteEl.classList.add('hidden');
+      liveBadge.hidden = true;
+      requestOfferFromStreamer();
+    }
+
+    async function captureAndPublish(){
+      setLifecycleState(LIFECYCLE_STATES.CAPTURING);
+      closeSettingsPanel();
+      currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['1080p60'];
+      currentCodecPreference = codecSelect?.value || 'auto';
+      const qualityConstraints = buildQualityConstraints(currentQualityProfile);
+      const thisCaptureGeneration = ++captureGeneration;
+      activeCaptureGeneration = thisCaptureGeneration;
+      let displayStream = null;
+      let microphoneStream = null;
 
       try {
-        closeSettingsPanel();
-        closeAllStreamerPeers();
-        currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['1080p60'];
-        currentCodecPreference = codecSelect?.value || 'auto';
-        const qualityConstraints = buildQualityConstraints(currentQualityProfile);
-
-        const stream = await navigator.mediaDevices.getDisplayMedia({
+        displayStream = await navigator.mediaDevices.getDisplayMedia({
           video: { ...qualityConstraints.video, cursor: 'always' },
           audio: true
         });
 
-        localStream = stream;
-        micStream = null;
-        try{
-          // Request mic audio so viewers hear commentary in addition to the screen share
-          micStream = await navigator.mediaDevices.getUserMedia({
+        for (const track of displayStream.getVideoTracks()) {
+          track.addEventListener('ended', ()=>{
+            if (activeCaptureGeneration !== thisCaptureGeneration) return;
+            requestLifecycleMode(LIFECYCLE_MODES.IDLE);
+          }, { once: true });
+        }
+
+        if (
+          requestedLifecycleMode !== LIFECYCLE_MODES.STREAMER
+          || activeCaptureGeneration !== thisCaptureGeneration
+        ) {
+          stopMediaTracks(displayStream);
+          return;
+        }
+
+        try {
+          // Request mic audio so viewers hear commentary in addition to the screen share.
+          microphoneStream = await navigator.mediaDevices.getUserMedia({
             audio: {
               echoCancellation: true,
               noiseSuppression: true,
               sampleRate: 48000
             }
           });
-        }catch(err){
-          console.warn('Microphone capture failed or was denied', err);
+        } catch (error) {
+          console.warn('Microphone capture failed or was denied', error);
         }
+
+        if (
+          requestedLifecycleMode !== LIFECYCLE_MODES.STREAMER
+          || activeCaptureGeneration !== thisCaptureGeneration
+        ) {
+          stopMediaTracks(displayStream, microphoneStream);
+          return;
+        }
+
+        const videoTrack = displayStream.getVideoTracks()[0] || null;
+        if (videoTrack) {
+          if ('contentHint' in videoTrack) {
+            videoTrack.contentHint = contentHintSelect.value; // 'motion' | 'detail'
+          }
+          await applyQualityConstraints(videoTrack, currentQualityProfile);
+        }
+
+        if (
+          requestedLifecycleMode !== LIFECYCLE_MODES.STREAMER
+          || activeCaptureGeneration !== thisCaptureGeneration
+          || videoTrack?.readyState === 'ended'
+        ) {
+          stopMediaTracks(displayStream, microphoneStream);
+          return;
+        }
+
+        localStream = displayStream;
+        micStream = microphoneStream;
         role = 'streamer';
         streamerId = null;
+        setLifecycleState(LIFECYCLE_STATES.PUBLISHING);
         sendRoleState();
 
         localEl.srcObject = localStream;
         localEl.classList.remove('hidden');
         remoteEl.classList.add('hidden');
         liveBadge.hidden = false;
-
-        const vTrack = localStream.getVideoTracks()[0];
-        if (vTrack) {
-          if ('contentHint' in vTrack) {
-            vTrack.contentHint = contentHintSelect.value; // 'motion' | 'detail'
-          }
-          await applyQualityConstraints(vTrack, currentQualityProfile);
+      } catch (error) {
+        stopMediaTracks(displayStream, microphoneStream);
+        if (activeCaptureGeneration === thisCaptureGeneration) {
+          activeCaptureGeneration = 0;
         }
-      } catch (err) {
-        console.error('Failed to start streaming', err);
-        liveBadge.hidden = true;
-        localEl.classList.add('hidden');
-        role = null;
-        sendRoleState();
-        if(micStream){
-          micStream.getTracks().forEach(t=>t.stop());
-          micStream = null;
+        if (requestedLifecycleMode === LIFECYCLE_MODES.STREAMER) {
+          requestedLifecycleMode = LIFECYCLE_MODES.IDLE;
+          console.error('Failed to start streaming', error);
+          const message = error?.name === 'NotAllowedError'
+            ? 'Screen share permission was denied. Please allow access and try again.'
+            : 'Unable to start screen sharing. Verify HTTPS is enabled and browser permissions are granted.';
+          alert(message);
         }
-        if(localStream){
-          localStream.getTracks().forEach(t=>t.stop());
-          localStream = null;
-        }
-
-        const message = err && err.name === 'NotAllowedError'
-          ? 'Screen share permission was denied. Please allow access and try again.'
-          : 'Unable to start screen sharing. Verify HTTPS is enabled and browser permissions are granted.';
-        alert(message);
       }
     }
 
+    async function reconcileLifecycle(){
+      while (!lifecycleMatchesRequestedMode()) {
+        if (lifecycleState !== LIFECYCLE_STATES.IDLE) {
+          await stopLifecycleResources();
+          continue;
+        }
+        if (requestedLifecycleMode === LIFECYCLE_MODES.VIEWER) {
+          enterViewerMode();
+          continue;
+        }
+        if (requestedLifecycleMode === LIFECYCLE_MODES.STREAMER) {
+          await captureAndPublish();
+          continue;
+        }
+      }
+    }
+
+    function requestLifecycleMode(mode){
+      requestedLifecycleMode = mode;
+      if (!lifecycleTask) {
+        lifecycleTask = reconcileLifecycle()
+          .catch(async error => {
+            console.error('Lifecycle transition failed', error);
+            requestedLifecycleMode = LIFECYCLE_MODES.IDLE;
+            try { await stopLifecycleResources(); } catch {}
+          })
+          .finally(()=>{
+            lifecycleTask = null;
+            if (!lifecycleMatchesRequestedMode()) {
+              requestLifecycleMode(requestedLifecycleMode);
+            }
+          });
+      }
+      return lifecycleTask;
+    }
+
+    function startStreamer(){
+      if (!SECURE_CONTEXT_OK) {
+        if (!screenShareAlertShown) {
+          alert('Screen sharing requires a secure context (HTTPS or localhost). Enable HTTPS on the host and reload.');
+          screenShareAlertShown = true;
+        }
+        return Promise.resolve();
+      }
+      return requestLifecycleMode(LIFECYCLE_MODES.STREAMER);
+    }
+
     function startViewer(){
-      role = 'viewer';
-      sendRoleState();
-      streamerId = null;
-      cleanupViewerConnection();
-      localEl.classList.add('hidden');
-      remoteEl.classList.add('hidden');
-      requestOfferFromStreamer();
+      return requestLifecycleMode(LIFECYCLE_MODES.VIEWER);
     }
 
     function stopAll(){
-      try{
-        if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
-        if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream = null; }
-        closeAllStreamerPeers();
-        cleanupViewerConnection();
-      }catch{}
-      localEl.classList.add('hidden');
-      remoteEl.classList.add('hidden');
-      liveBadge.hidden = true;
-      role = null;
-      streamerId = null;
-      sendRoleState();
+      return requestLifecycleMode(LIFECYCLE_MODES.IDLE);
     }
 
     function buildQualityConstraints(profile){
