@@ -12,3 +12,6 @@
 .vscode-test/
 .code-search
 .history/
+
+# Local TLS material - never commit
+/Northstar/server/certs/
