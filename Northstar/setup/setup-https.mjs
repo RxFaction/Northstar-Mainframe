@@ -18,6 +18,16 @@ import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 
+/*
+ * Generate one local, self-signed TLS identity for a Northstar host.
+ *
+ * Security invariants:
+ * - Refuse to generate until Git ignore protection is verified when possible.
+ * - Build in a private temporary directory, then copy completed files into place.
+ * - Never overwrite existing material unless --force explicitly requests rotation.
+ * - On rotation failure, restore the previous pair so key/certificate cannot split.
+ */
+
 const setupDir = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.dirname(setupDir);
 const repositoryDir = path.dirname(appDir);
@@ -80,6 +90,7 @@ function isPrivateIPv4(address) {
     || (octets[0] === 192 && octets[1] === 168);
 }
 
+// Prefer ordinary private-LAN interfaces over VPN, virtual, or public addresses.
 function getLocalIPv4Addresses() {
   const addresses = [];
   const seen = new Set();
@@ -146,6 +157,7 @@ function commandResult(command, args) {
   });
 }
 
+// Probe PATH, common platform locations, and Git for Windows' bundled OpenSSL.
 function findOpenSsl() {
   const candidates = [process.env.OPENSSL, 'openssl'];
 
@@ -201,6 +213,7 @@ function validDnsName(value) {
   ));
 }
 
+// Put every address users may browse to in subjectAltName; CN alone is insufficient.
 function buildOpenSslConfig(hostAddress) {
   const localHostname = hostname().trim();
   const dnsNames = ['localhost'];
@@ -241,6 +254,7 @@ ${alternateNames.join('\n')}
   };
 }
 
+// `--no-index` verifies the rule even before the certificate files exist.
 function assertGitIgnored() {
   const gitDirectory = path.join(repositoryDir, '.git');
   if (!existsSync(gitDirectory)) {
@@ -313,6 +327,7 @@ async function main() {
   config.dnsNames.forEach(name => console.log(`  DNS: ${name}`));
   config.ipAddresses.forEach(address => console.log(`  IP:  ${address}`));
 
+  // Generate and verify away from the repository; the finally block always removes it.
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), 'northstar-certificate-'));
   const temporaryConfig = path.join(temporaryDirectory, 'openssl.cnf');
   const temporaryKey = path.join(temporaryDirectory, 'key.pem');
@@ -343,6 +358,7 @@ async function main() {
 
     await mkdir(certificateDir, { recursive: true });
     if (options.force) {
+      // Back up both halves before rotation and restore them together on failure.
       const previousKey = path.join(temporaryDirectory, 'previous-key.pem');
       const previousCertificate = path.join(temporaryDirectory, 'previous-cert.pem');
       if (keyExists) await copyFile(keyPath, previousKey, fsConstants.COPYFILE_EXCL);

@@ -4,6 +4,17 @@ const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
 
+/*
+ * Northstar's server has two responsibilities:
+ *   1. Serve the single browser application over HTTP or HTTPS.
+ *   2. Relay WebRTC signaling between one active streamer and its viewers.
+ *
+ * Media is always peer-to-peer; offers, answers, and ICE candidates contain
+ * connection/negotiation IDs so browsers can reject delayed signaling. This is
+ * intentionally one global broadcast—there is no room or channel abstraction.
+ */
+
+// Runtime configuration. Default certificates live beside this server entry point.
 const HTTP_PORT = process.env.PORT || 3000;
 const USE_HTTPS = String(process.env.USE_HTTPS || '').toLowerCase() === 'true' || process.env.USE_HTTPS === '1';
 const SSL_KEY_PATH = process.env.SSL_KEY || path.join(__dirname, 'certs', 'key.pem');
@@ -51,6 +62,7 @@ function handleRequest(req, res) {
   });
 }
 
+// HTTPS is mandatory for screen capture on remote devices; localhost may use HTTP.
 let server;
 if (USE_HTTPS) {
   let credentials;
@@ -70,9 +82,12 @@ if (USE_HTTPS) {
 }
 
 const wss = new WebSocket.Server({ server });
+
+// Connection registry. Client IDs are server-issued and valid for one socket lifetime.
 const clientRoles = new Map();
 const clientIds = new Map();
 const clientsById = new Map();
+// The latest client declaring `streamer` owns the single global broadcast.
 let streamerId = null;
 let clientCounter = 0;
 
@@ -98,6 +113,7 @@ function getClientId(ws) {
   return clientIds.get(ws) || null;
 }
 
+// Signaling IDs are opaque browser-generated tokens; only bound their wire size here.
 function getNegotiationId(data) {
   return typeof data.negotiationId === 'string'
     && data.negotiationId.length > 0
@@ -135,6 +151,7 @@ wss.on('connection', ws => {
       return;
     }
 
+    // Role messages drive viewer counts and announce the active streamer.
     if (data.type === 'role') {
       const role = data.role || 'unknown';
       const prevRole = clientRoles.get(ws) || 'unknown';
@@ -167,6 +184,7 @@ wss.on('connection', ws => {
       return;
     }
 
+    // A viewer asks the current streamer to create or restart its dedicated peer.
     if (data.type === 'request-offer') {
       if (!streamerId) {
         sendToClient(senderId, JSON.stringify({ type: 'streamer-offline' }));
@@ -182,6 +200,7 @@ wss.on('connection', ws => {
       return;
     }
 
+    // SDP and ICE are relayed, not interpreted; sender IDs cannot be client-forged.
     if (data.type === 'offer') {
       const targetId = data.to || data.viewerId;
       if (!targetId) return;
@@ -238,6 +257,7 @@ wss.on('connection', ws => {
     }
   });
 
+  // Disconnect cleanup informs the affected side and keeps the viewer count exact.
   ws.on('close', () => {
     console.log('[Northstar] Client disconnected');
     const id = getClientId(ws);

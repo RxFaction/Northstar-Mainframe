@@ -1,7 +1,7 @@
 {
   "name": "server",
   "version": "1.0.0",
-  "description": "",
+  "description": "Static web and WebSocket signaling server for Northstar",
   "main": "index.js",
   "scripts": {
     "start": "node ../setup/start.mjs",

@@ -8,6 +8,14 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+/*
+ * Cross-platform Northstar launcher.
+ *
+ * Auto mode selects HTTPS only when both local TLS files exist. Explicit modes
+ * fail closed when their prerequisites are incomplete, and the child server
+ * inherits stdio so Ctrl+C and runtime logs behave like a direct Node process.
+ */
+
 const setupDir = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.dirname(setupDir);
 const serverDir = path.join(appDir, 'server');
@@ -32,6 +40,7 @@ With no mode option, HTTPS is selected when both certificate files exist;
 otherwise Northstar starts in HTTP mode.`);
 }
 
+// Parse locally instead of adding a CLI dependency for three simple options.
 function parseArguments(argv) {
   const options = { help: false, mode: 'auto', port: process.env.PORT || '3000' };
 
@@ -67,6 +76,7 @@ function parseArguments(argv) {
   return options;
 }
 
+// Environment overrides may be absolute or relative to the launch directory.
 function configuredPath(environmentValue, fallback) {
   if (!environmentValue) return fallback;
   return path.isAbsolute(environmentValue)
@@ -74,6 +84,7 @@ function configuredPath(environmentValue, fallback) {
     : path.resolve(process.cwd(), environmentValue);
 }
 
+// Printed LAN addresses are convenience URLs; certificate SANs are configured separately.
 function getLocalIPv4Addresses() {
   const addresses = new Set();
   for (const entries of Object.values(networkInterfaces())) {
@@ -85,6 +96,7 @@ function getLocalIPv4Addresses() {
   return [...addresses];
 }
 
+// Resolve from the server package so launching from another directory is reliable.
 function ensureDependencies() {
   const requireFromServer = createRequire(serverEntry);
   try {

@@ -227,11 +227,25 @@
     </aside>
   </main>
 
-  <p class='footer-note'>Project Northstar v0.7.0-Alpha: Built with WebRTC, Websocket, and Nodejs by RxFaction</p>
+  <p class='footer-note'>Project Northstar v1.0 Beta — Built with WebRTC, WebSocket, and Node.js by RxFaction</p>
 
-  <!-- App logic: WebRTC signaling, capture controls, and chat -->
+  <!-- App logic: WebRTC signaling, capture controls, adaptive quality, and chat -->
   <script>
-    // References & initial state
+    /*
+     * Runtime model
+     * -------------
+     * Northstar is one global broadcast, not a room-based service. The streamer
+     * owns one RTCPeerConnection per viewer; a viewer owns one connection to the
+     * active streamer. Media remains peer-to-peer and never passes through the
+     * signaling server.
+     *
+     * connectionId identifies one RTCPeerConnection lifetime. negotiationId
+     * identifies one offer/answer exchange inside that lifetime. Carrying both
+     * through signaling prevents delayed answers or ICE candidates from being
+     * applied to a replacement connection or the wrong ICE generation.
+     */
+
+    // DOM references and UI state
     const localEl  = document.getElementById('localVideo');
     const remoteEl = document.getElementById('remoteVideo');
     const liveBadge = document.getElementById('liveBadge');
@@ -290,7 +304,7 @@
     chatInput?.addEventListener('focus', () => bodyEl.classList.add('keyboard-open'));
     chatInput?.addEventListener('blur', () => bodyEl.classList.remove('keyboard-open'));
 
-    // Quality + bitrate presets that mirror the gear dropdown
+    // Presets are upper bounds. Each viewer may adapt below its selected ceiling.
     const QUALITY_PROFILES = {
       '1080p60': { width: 1920, height: 1080, frameRate: 60, maxBitrate: 12_000_000, adaptiveFloor: 1_500_000, degradationPreference: 'balanced' },
       '720p60':  { width: 1280, height: 720, frameRate: 60, maxBitrate: 7_000_000,  adaptiveFloor: 1_000_000, degradationPreference: 'balanced' },
@@ -340,16 +354,21 @@
       STREAMER: 'streamer',
       VIEWER: 'viewer'
     });
+    // Streamer-owned peer state is keyed by the server-issued viewer ID.
     const peerConnections = new Map();
     const streamerRecoveryTimers = new Map();
     const streamerQualityTimers = new Map();
+    // At most one offer-building or ICE-restart task may run per viewer.
     const streamerNegotiationTasks = new Map();
     const pendingStreamerIceRestarts = new Set();
+    // Candidate and sender state follows RTCPeerConnection/RTCRtpSender lifetimes.
     const candidateStates = new WeakMap();
     const senderParameterTasks = new WeakMap();
     const senderAdaptationStates = new WeakMap();
+    // These maps retain candidates that arrive before their peer object exists.
     const pendingStreamerCandidates = new Map();
     const pendingViewerCandidates = new Map();
+    // A small retired-ID history rejects delayed signaling from replaced peers.
     const retiredStreamerConnectionIds = new Map();
     const retiredViewerConnectionIds = new Set();
     let peerConnection;
@@ -428,13 +447,18 @@
     });
 
 
-    // WebSocket lifecycle + signalling messages
+    // WebSocket lifecycle and signaling protocol dispatch
     socket.addEventListener('open', () => {
-      console.log('Websocket Connected');
+      console.log('WebSocket connected');
       sendRoleState();
     });
     socket.addEventListener('message', onSocketMessage);
 
+    /*
+     * The server owns client IDs and stamps `from`/`to`; the browser owns SDP,
+     * connection IDs, and negotiation IDs. Routing guards below deliberately
+     * discard signaling that does not belong to the current role or peer.
+     */
     async function onSocketMessage(event){
       let raw = event.data; if(raw instanceof Blob) raw = await raw.text();
       const data = JSON.parse(raw);
@@ -593,7 +617,7 @@
       if (data.type === 'chat') { appendMessage(data.message); }
     }
 
-    // Create a new RTCPeerConnection for viewer
+    // Viewer peer: receives tracks and answers offers from the active streamer.
     function createViewerPeerConnection(targetId, connectionId){
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
@@ -644,7 +668,7 @@
       return pc;
     }
 
-    // Create a new RTCPeerConnection for streamer
+    // Streamer peer: sends the capture to exactly one viewer.
     function createStreamerPeerConnection(viewerId, connectionId){
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
@@ -681,6 +705,13 @@
       return pc;
     }
 
+    /*
+     * Remote ICE candidate queue
+     * --------------------------
+     * Trickle ICE may reach the browser before its peer exists or while
+     * setRemoteDescription() is still pending. Candidates stay ordered and are
+     * drained only when both their connection and negotiation generations match.
+     */
     function getCandidateState(pc){
       let state = candidateStates.get(pc);
       if (!state) {
@@ -794,6 +825,7 @@
       state.awaitingRemoteDescription = true;
     }
 
+    // Accept, validate, and queue a remote candidate; never apply it early.
     async function receiveRemoteCandidate({
       candidateInit,
       label,
@@ -831,6 +863,7 @@
       await drainRemoteCandidates(pc, label);
     }
 
+    // Serialize addIceCandidate() calls to preserve signaling arrival order.
     async function drainRemoteCandidates(pc, label){
       const state = getCandidateState(pc);
       if (
@@ -865,6 +898,7 @@
       }
     }
 
+    // Installing the SDP and draining its candidates is one ordered operation.
     async function setRemoteDescriptionAndDrainCandidates(
       pc,
       description,
@@ -887,6 +921,13 @@
       await drainRemoteCandidates(pc, label);
     }
 
+    /*
+     * Connection recovery and offer serialization
+     * -------------------------------------------
+     * `disconnected` gets a grace period because it may recover on its own.
+     * `failed` restarts ICE immediately. If restart negotiation cannot settle,
+     * Northstar replaces only that viewer's connection.
+     */
     function clearStreamerRecovery(viewerId){
       const timer = streamerRecoveryTimers.get(viewerId);
       if (timer) clearTimeout(timer);
@@ -912,6 +953,7 @@
       streamerRecoveryTimers.set(viewerId, timer);
     }
 
+    // Duplicate requests join the active promise instead of racing createOffer().
     function runStreamerNegotiation(viewerId, kind, operation){
       const active = streamerNegotiationTasks.get(viewerId);
       if (active) {
@@ -1044,6 +1086,7 @@
       retiredStreamerConnectionIds.clear();
     }
 
+    // Invalidate queued viewer offers before releasing the current viewer peer.
     function cleanupViewerConnection(){
       viewerOfferEpoch += 1;
       requestedViewerConnectionId = null;
@@ -1078,6 +1121,7 @@
       }, delay);
     }
 
+    // Viewer-side SDP operations are chained so two offers cannot overlap.
     function queueViewerOffer(offer, options){
       const queuedEpoch = viewerOfferEpoch;
       const queuedOffer = viewerOfferChain.then(() => {
@@ -1090,6 +1134,7 @@
       return viewerOfferChain;
     }
 
+    // Retired histories are bounded: enough for delayed packets, not unbounded state.
     function rememberRetiredViewerConnection(connectionId){
       if (!connectionId || connectionId === LEGACY_CONNECTION_ID) return;
       retiredViewerConnectionIds.add(connectionId);
@@ -1189,6 +1234,16 @@
       socket.send(JSON.stringify(payload));
     }
 
+    /*
+     * Media/role lifecycle
+     * --------------------
+     * Valid paths are:
+     *   idle -> capturing -> publishing -> stopping -> idle
+     *   idle -> viewing -----------------> stopping -> idle
+     *
+     * Button presses set a desired mode. The reconciler serializes transitions,
+     * which also handles a user changing modes while a permission prompt is open.
+     */
     function setLifecycleState(nextState){
       const allowedTransitions = {
         [LIFECYCLE_STATES.IDLE]: [LIFECYCLE_STATES.CAPTURING, LIFECYCLE_STATES.VIEWING],
@@ -1215,6 +1270,7 @@
       );
     }
 
+    // Stop every owned track once, even if two MediaStreams reference the same track.
     function stopMediaTracks(...streams){
       const stoppedTracks = new Set();
       for (const stream of streams) {
@@ -1229,6 +1285,7 @@
       }
     }
 
+    // This is the single teardown path for peers, timers, UI, and capture tracks.
     async function stopLifecycleResources(){
       if (lifecycleState === LIFECYCLE_STATES.IDLE) return;
       setLifecycleState(LIFECYCLE_STATES.STOPPING);
@@ -1283,6 +1340,7 @@
         });
 
         for (const track of displayStream.getVideoTracks()) {
+          // Browser chrome's "Stop sharing" must follow the same teardown path.
           track.addEventListener('ended', ()=>{
             if (activeCaptureGeneration !== thisCaptureGeneration) return;
             requestLifecycleMode(LIFECYCLE_MODES.IDLE);
@@ -1362,6 +1420,7 @@
       }
     }
 
+    // Move through stopping/idle as needed until actual state equals desired mode.
     async function reconcileLifecycle(){
       while (!lifecycleMatchesRequestedMode()) {
         if (lifecycleState !== LIFECYCLE_STATES.IDLE) {
@@ -1465,7 +1524,13 @@
       });
     }
 
-    // Streamer helper - build connection per viewer and push SDP offer
+    /*
+     * Offer creation
+     * --------------
+     * A new viewer connection gets a fresh connectionId and its first
+     * negotiationId. Every await is followed by an ownership check so work from
+     * a closed/replaced peer cannot send a stale offer.
+     */
     function buildAndSendOfferForViewer(viewerId, options = {}){
       if (!localStream || !viewerId) return;
       return runStreamerNegotiation(
@@ -1541,7 +1606,7 @@
       }
     }
 
-    // Viewer helper - ask the active streamer to send a new offer
+    // Ask the active streamer for an initial offer or an in-place ICE restart.
     function requestOfferFromStreamer({ iceRestart = false } = {}){
       const payload = { type: 'request-offer', iceRestart };
       if (iceRestart) {
@@ -1568,6 +1633,17 @@
       }
     }
 
+    /*
+     * Per-viewer quality adaptation
+     * -----------------------------
+     * The selected profile is a ceiling, not a promised bitrate. Every three
+     * seconds, each connected peer samples WebRTC stats. Loss, high RTT, or a
+     * low available-outgoing-bitrate estimate lowers that peer's maxBitrate;
+     * two healthy samples are required before a gradual increase.
+     *
+     * Motion mode protects frame rate and may scale resolution down. Detail mode
+     * protects resolution and lets the browser reduce frame rate under pressure.
+     */
     function getDegradationPreference(profile){
       if (contentHintSelect?.value === 'motion') return 'maintain-framerate';
       if (contentHintSelect?.value === 'detail') return 'maintain-resolution';
@@ -1598,6 +1674,7 @@
       return Math.max(1, Math.min(4, baseScale * adaptiveScale));
     }
 
+    // RTCRtpSender.setParameters() calls must not overlap for the same sender.
     function queueSenderParameterUpdate(sender, update){
       const previousTask = senderParameterTasks.get(sender) || Promise.resolve();
       const task = previousTask.catch(()=>{}).then(async ()=>{
@@ -1659,6 +1736,7 @@
       });
     }
 
+    // Normalize browser stats into the three signals used by the controller.
     function readNetworkQuality(stats){
       let selectedPairId = null;
       let fallbackPair = null;
@@ -1696,6 +1774,7 @@
       return { availableOutgoingBitrate, fractionLost, roundTripTime };
     }
 
+    // Multiplicative decrease plus conservative additive recovery avoids oscillation.
     function chooseAdaptiveBitrate(profile, state, networkQuality){
       const ceiling = profile.maxBitrate;
       const floor = Math.min(ceiling, profile.adaptiveFloor || 500_000);
