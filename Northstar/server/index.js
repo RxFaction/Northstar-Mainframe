@@ -98,6 +98,14 @@ function getClientId(ws) {
   return clientIds.get(ws) || null;
 }
 
+function getNegotiationId(data) {
+  return typeof data.negotiationId === 'string'
+    && data.negotiationId.length > 0
+    && data.negotiationId.length <= 128
+    ? data.negotiationId
+    : null;
+}
+
 wss.on('connection', ws => {
   console.log('[Northstar] New client connected');
   clientRoles.set(ws, 'unknown');
@@ -172,6 +180,7 @@ wss.on('connection', ws => {
         type: 'offer',
         offer: data.offer,
         iceRestart: data.iceRestart === true,
+        negotiationId: getNegotiationId(data),
         from: senderId,
         to: targetId
       }));
@@ -184,6 +193,7 @@ wss.on('connection', ws => {
       sendToClient(targetId, JSON.stringify({
         type: 'answer',
         answer: data.answer,
+        negotiationId: getNegotiationId(data),
         from: senderId,
         to: targetId
       }));
@@ -197,6 +207,7 @@ wss.on('connection', ws => {
           sendToClient(streamerId, JSON.stringify({
             type: 'candidate',
             candidate: data.candidate,
+            negotiationId: getNegotiationId(data),
             from: senderId,
             to: streamerId
           }));
@@ -206,6 +217,7 @@ wss.on('connection', ws => {
       sendToClient(targetId, JSON.stringify({
         type: 'candidate',
         candidate: data.candidate,
+        negotiationId: getNegotiationId(data),
         from: senderId,
         to: targetId
       }));

@@ -323,9 +323,14 @@
     const socket = new WebSocket(`${wsProtocol}://${window.location.host}`);
     const ICE_DISCONNECT_GRACE_MS = 8_000;
     const ICE_RESTART_RETRY_MS = 15_000;
+    const MAX_PENDING_ICE_CANDIDATES = 128;
+    const LEGACY_NEGOTIATION_ID = 'legacy';
     const peerConnections = new Map();
     const streamerRecoveryTimers = new Map();
     const streamerRecoveriesInFlight = new Set();
+    const candidateStates = new WeakMap();
+    const pendingStreamerCandidates = new Map();
+    const pendingViewerCandidates = new Map();
     let peerConnection;
     let viewerRecoveryTimer = null;
     let localStream;
@@ -333,6 +338,7 @@
     let role = null;
     let clientId = null;
     let streamerId = null;
+    let negotiationCounter = 0;
     let screenShareAlertShown = false;
     let currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['1080p60'];
     let currentCodecPreference = codecSelect?.value || 'auto';
@@ -432,7 +438,10 @@
         if (role !== 'viewer') return;
         if (data.to && clientId && data.to !== clientId) return;
         streamerId = data.from || streamerId;
-        await handleViewerOffer(data.offer, { iceRestart: data.iceRestart === true });
+        await handleViewerOffer(data.offer, {
+          iceRestart: data.iceRestart === true,
+          negotiationId: data.negotiationId
+        });
         return;
       }
       if (data.type === 'answer') {
@@ -441,12 +450,28 @@
         if (!viewerId) return;
         const pc = peerConnections.get(viewerId);
         if (!pc) return;
+        const negotiationId = normalizeNegotiationId(
+          data.negotiationId || pc.northstarNegotiationId
+        );
+        if (
+          data.negotiationId
+          && pc.northstarNegotiationId
+          && negotiationId !== pc.northstarNegotiationId
+        ) {
+          console.warn(`Ignoring stale answer for viewer ${viewerId}`);
+          return;
+        }
         if (pc.signalingState !== 'have-local-offer') {
           console.warn('Ignoring unexpected answer in state', pc.signalingState);
           return;
         }
         try {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+          await setRemoteDescriptionAndDrainCandidates(
+            pc,
+            new RTCSessionDescription(data.answer),
+            `viewer ${viewerId}`,
+            negotiationId
+          );
         } catch (err) {
           console.warn('Failed to apply remote answer', err);
         }
@@ -468,17 +493,30 @@
       if (data.type === 'candidate') {
         if (role === 'streamer') {
           const viewerId = data.from || data.viewerId;
-          const pc = viewerId ? peerConnections.get(viewerId) : null;
-          if (!pc) return;
-          try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); }
-          catch (e) { console.error('Error adding ICE candidate', e); }
+          if (!viewerId) return;
+          await receiveRemoteCandidate({
+            candidateInit: data.candidate,
+            label: `viewer ${viewerId}`,
+            pc: peerConnections.get(viewerId),
+            pendingCandidates: pendingStreamerCandidates,
+            peerId: viewerId,
+            negotiationId: data.negotiationId
+          });
           return;
         }
-        if (role === 'viewer' && peerConnection) {
+        if (role === 'viewer') {
           if (data.to && clientId && data.to !== clientId) return;
           if (streamerId && data.from && data.from !== streamerId) return;
-          try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); }
-          catch (e) { console.error('Error adding ICE candidate', e); }
+          const sourceId = data.from || streamerId;
+          if (!sourceId) return;
+          await receiveRemoteCandidate({
+            candidateInit: data.candidate,
+            label: `streamer ${sourceId}`,
+            pc: peerConnection,
+            pendingCandidates: pendingViewerCandidates,
+            peerId: sourceId,
+            negotiationId: data.negotiationId
+          });
           return;
         }
       }
@@ -492,7 +530,13 @@
       });
       pc.onicecandidate = (event)=>{
         if(event.candidate && targetId){
-          socket.send(JSON.stringify({ type:'candidate', candidate:event.candidate, to: targetId, from: clientId }));
+          socket.send(JSON.stringify({
+            type:'candidate',
+            candidate:event.candidate,
+            negotiationId: pc.northstarNegotiationId,
+            to: targetId,
+            from: clientId
+          }));
         }
       };
       pc.ontrack = (event)=>{
@@ -524,6 +568,7 @@
           clearViewerRecovery();
         }
       };
+      adoptPendingCandidates(pendingViewerCandidates, targetId, pc);
       return pc;
     }
 
@@ -534,7 +579,13 @@
       });
       pc.onicecandidate = (event)=>{
         if(event.candidate && viewerId){
-          socket.send(JSON.stringify({ type:'candidate', candidate:event.candidate, to: viewerId, from: clientId }));
+          socket.send(JSON.stringify({
+            type:'candidate',
+            candidate:event.candidate,
+            negotiationId: pc.northstarNegotiationId,
+            to: viewerId,
+            from: clientId
+          }));
         }
       };
       pc.oniceconnectionstatechange = ()=>{
@@ -549,7 +600,176 @@
           closeStreamerPeer(viewerId, pc);
         }
       };
+      adoptPendingCandidates(pendingStreamerCandidates, viewerId, pc);
       return pc;
+    }
+
+    function getCandidateState(pc){
+      let state = candidateStates.get(pc);
+      if (!state) {
+        state = {
+          activeNegotiationId: LEGACY_NEGOTIATION_ID,
+          awaitingRemoteDescription: false,
+          draining: false,
+          queue: []
+        };
+        candidateStates.set(pc, state);
+      }
+      return state;
+    }
+
+    function normalizeNegotiationId(negotiationId){
+      return typeof negotiationId === 'string' && negotiationId.length > 0 && negotiationId.length <= 128
+        ? negotiationId
+        : LEGACY_NEGOTIATION_ID;
+    }
+
+    function createNegotiationId(){
+      negotiationCounter += 1;
+      return `${clientId || 'streamer'}-${Date.now().toString(36)}-${negotiationCounter.toString(36)}`;
+    }
+
+    function candidateMatchesNegotiation(candidateRecord, negotiationId){
+      return candidateRecord.negotiationId === negotiationId
+        || candidateRecord.negotiationId === LEGACY_NEGOTIATION_ID
+        || negotiationId === LEGACY_NEGOTIATION_ID;
+    }
+
+    function appendCandidate(queue, candidateRecord, label){
+      if (queue.length >= MAX_PENDING_ICE_CANDIDATES) {
+        console.warn(`Dropping excess ICE candidate from ${label}`);
+        return false;
+      }
+      queue.push(candidateRecord);
+      return true;
+    }
+
+    function adoptPendingCandidates(pendingCandidates, peerId, pc){
+      if (!peerId) return;
+      const queued = pendingCandidates.get(peerId);
+      if (!queued || !queued.length) return;
+      pendingCandidates.delete(peerId);
+      const state = getCandidateState(pc);
+      for (const candidateRecord of queued) {
+        appendCandidate(state.queue, candidateRecord, peerId);
+      }
+    }
+
+    function takeCandidatesForNegotiation(pc, negotiationId){
+      if (!pc) return [];
+      const state = getCandidateState(pc);
+      const normalizedId = normalizeNegotiationId(negotiationId);
+      const selected = [];
+      state.queue = state.queue.filter(candidateRecord => {
+        if (!candidateMatchesNegotiation(candidateRecord, normalizedId)) return true;
+        selected.push(candidateRecord);
+        return false;
+      });
+      return selected;
+    }
+
+    function appendCandidatesToConnection(pc, candidateRecords, label){
+      if (!candidateRecords.length) return;
+      const state = getCandidateState(pc);
+      for (const candidateRecord of candidateRecords) {
+        appendCandidate(state.queue, candidateRecord, label);
+      }
+    }
+
+    function clearCandidateState(pc){
+      if (!pc) return;
+      const state = candidateStates.get(pc);
+      if (state) state.queue.length = 0;
+      candidateStates.delete(pc);
+    }
+
+    function markAwaitingRemoteDescription(pc, negotiationId){
+      const state = getCandidateState(pc);
+      state.activeNegotiationId = normalizeNegotiationId(negotiationId);
+      state.awaitingRemoteDescription = true;
+    }
+
+    async function receiveRemoteCandidate({
+      candidateInit,
+      label,
+      negotiationId,
+      pc,
+      pendingCandidates,
+      peerId
+    }){
+      let candidate;
+      try {
+        candidate = new RTCIceCandidate(candidateInit);
+      } catch (error) {
+        console.warn(`Ignoring invalid ICE candidate from ${label}`, error);
+        return;
+      }
+      const candidateRecord = {
+        candidate,
+        negotiationId: normalizeNegotiationId(negotiationId)
+      };
+
+      if (!pc || pc.signalingState === 'closed') {
+        let queue = pendingCandidates.get(peerId);
+        if (!queue) {
+          queue = [];
+          pendingCandidates.set(peerId, queue);
+        }
+        appendCandidate(queue, candidateRecord, label);
+        return;
+      }
+
+      const state = getCandidateState(pc);
+      if (!appendCandidate(state.queue, candidateRecord, label)) return;
+      await drainRemoteCandidates(pc, label);
+    }
+
+    async function drainRemoteCandidates(pc, label){
+      const state = getCandidateState(pc);
+      if (
+        state.draining
+        || state.awaitingRemoteDescription
+        || !pc.remoteDescription
+        || pc.signalingState === 'closed'
+      ) return;
+
+      state.draining = true;
+      try {
+        while (
+          state.queue.length
+          && !state.awaitingRemoteDescription
+          && pc.remoteDescription
+          && pc.signalingState !== 'closed'
+        ) {
+          const candidateIndex = state.queue.findIndex(candidateRecord => (
+            candidateMatchesNegotiation(candidateRecord, state.activeNegotiationId)
+          ));
+          if (candidateIndex < 0) break;
+          const [{ candidate }] = state.queue.splice(candidateIndex, 1);
+          try {
+            await pc.addIceCandidate(candidate);
+          } catch (error) {
+            console.warn(`Ignoring ICE candidate that could not be applied for ${label}`, error);
+          }
+        }
+      } finally {
+        state.draining = false;
+      }
+    }
+
+    async function setRemoteDescriptionAndDrainCandidates(pc, description, label, negotiationId){
+      const state = getCandidateState(pc);
+      state.activeNegotiationId = normalizeNegotiationId(negotiationId);
+      state.awaitingRemoteDescription = true;
+      try {
+        await pc.setRemoteDescription(description);
+      } catch (error) {
+        // Retain queued candidates for the next valid description rather than
+        // applying them against an older ICE generation.
+        throw error;
+      }
+      state.awaitingRemoteDescription = false;
+      await drainRemoteCandidates(pc, label);
     }
 
     function clearStreamerRecovery(viewerId){
@@ -585,6 +805,9 @@
         }
 
         if (typeof pc.restartIce === 'function') pc.restartIce();
+        const negotiationId = createNegotiationId();
+        pc.northstarNegotiationId = negotiationId;
+        markAwaitingRemoteDescription(pc, negotiationId);
         const offer = await pc.createOffer({ iceRestart: true });
         await pc.setLocalDescription(offer);
         if (peerConnections.get(viewerId) !== pc) return;
@@ -593,6 +816,7 @@
           type: 'offer',
           offer: pc.localDescription || offer,
           iceRestart: true,
+          negotiationId,
           to: viewerId,
           from: clientId
         }));
@@ -613,10 +837,13 @@
 
     function closeStreamerPeer(viewerId, expectedPc = null){
       const pc = peerConnections.get(viewerId);
-      if (!pc || (expectedPc && pc !== expectedPc)) return;
+      if (expectedPc && pc !== expectedPc) return;
       clearStreamerRecovery(viewerId);
       streamerRecoveriesInFlight.delete(viewerId);
+      pendingStreamerCandidates.delete(viewerId);
+      if (!pc) return;
       peerConnections.delete(viewerId);
+      clearCandidateState(pc);
       try { pc.close(); } catch {}
     }
 
@@ -624,14 +851,17 @@
       for (const viewerId of Array.from(peerConnections.keys())) {
         closeStreamerPeer(viewerId);
       }
+      pendingStreamerCandidates.clear();
     }
 
     function cleanupViewerConnection(){
       clearViewerRecovery();
       if (peerConnection) {
+        clearCandidateState(peerConnection);
         try { peerConnection.close(); } catch {}
         peerConnection = null;
       }
+      pendingViewerCandidates.clear();
       remoteEl.srcObject = null;
       remoteEl.classList.add('hidden');
       liveBadge.hidden = true;
@@ -655,22 +885,47 @@
       }, delay);
     }
 
-    async function handleViewerOffer(offer, { iceRestart = false } = {}){
+    async function handleViewerOffer(offer, { iceRestart = false, negotiationId } = {}){
       clearViewerRecovery();
+      const normalizedNegotiationId = normalizeNegotiationId(negotiationId);
       const canReuseConnection = iceRestart
         && peerConnection
         && peerConnection.signalingState === 'stable';
 
       if (!canReuseConnection) {
+        const carriedCandidates = takeCandidatesForNegotiation(
+          peerConnection,
+          normalizedNegotiationId
+        );
         if (peerConnection && peerConnection.signalingState !== 'closed') {
+          clearCandidateState(peerConnection);
           try { peerConnection.close(); } catch {}
         }
+        for (const pendingId of pendingViewerCandidates.keys()) {
+          if (pendingId !== streamerId) pendingViewerCandidates.delete(pendingId);
+        }
         peerConnection = createViewerPeerConnection(streamerId);
+        appendCandidatesToConnection(
+          peerConnection,
+          carriedCandidates,
+          `streamer ${streamerId || 'unknown'}`
+        );
       }
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+      peerConnection.northstarNegotiationId = normalizedNegotiationId;
+      await setRemoteDescriptionAndDrainCandidates(
+        peerConnection,
+        new RTCSessionDescription(offer),
+        `streamer ${streamerId || 'unknown'}`,
+        normalizedNegotiationId
+      );
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
-      const payload = { type: 'answer', answer: peerConnection.localDescription || answer, from: clientId };
+      const payload = {
+        type: 'answer',
+        answer: peerConnection.localDescription || answer,
+        negotiationId: normalizedNegotiationId,
+        from: clientId
+      };
       if (streamerId) payload.to = streamerId;
       socket.send(JSON.stringify(payload));
     }
@@ -838,12 +1093,16 @@
       await applyCodecPreference(pc, currentCodecPreference);
       await tuneSenderParams(pc, currentQualityProfile, videoTrack);
 
+      const negotiationId = createNegotiationId();
+      pc.northstarNegotiationId = negotiationId;
+      markAwaitingRemoteDescription(pc, negotiationId);
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       socket.send(JSON.stringify({
         type:'offer',
         offer: pc.localDescription || offer,
         iceRestart: false,
+        negotiationId,
         to: viewerId,
         from: clientId
       }));
