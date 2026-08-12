@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Project Northstar</title>
+  <style>
+    /* Global theme tokens */
+    :root {
+      --bg:#0f1117; --panel:#171923; --panel-2:#1e2130;
+      --text:#e6e6f0; --muted:#9aa0b4; --accent:#8b5cf6; --accent-2:#22d3ee;
+      --danger:#ef4444; --shadow:rgba(0,0,0,.35); --radius:14px;
+    }
+    *{box-sizing:border-box} html,body{height:100%}
+    body{
+      margin:0; color:var(--text);
+      background: radial-gradient(1200px 1200px at 10% 10%, #121426 0%, #0d0f1a 60%, #090b14 100%),
+                  radial-gradient(800px 800px at 90% 0%, rgba(34,211,238,.08), transparent 60%),
+                  radial-gradient(900px 900px at 0% 90%, rgba(139,92,246,.08), transparent 60%),
+                  var(--bg);
+      font:500 16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;
+      display:flex; flex-direction:column; min-height:100vh;
+    }
+
+    /* Topbar */
+    .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 20px;background:linear-gradient(180deg,rgba(0,0,0,.45),rgba(0,0,0,.15));backdrop-filter:saturate(140%) blur(8px);border-bottom:1px solid rgba(255,255,255,.06)}
+    .brand{display:flex;align-items:center;gap:12px}
+    .brand-logo{width:32px;height:32px;display:grid;place-items:center;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent-2));box-shadow:0 6px 24px rgba(139,92,246,.35)}
+    .brand h1{
+      margin:0;
+      font-size:18px;
+      letter-spacing:.4px;
+      font-weight:700;
+      position:relative;
+      color:var(--text);
+    }
+    .pill{font-size:12px;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.08);color:var(--muted)}
+    @supports ((-webkit-background-clip:text) or (background-clip:text)){
+      .brand h1{
+        background:linear-gradient(120deg,var(--accent) 0%,rgba(255,255,255,.95) 45%,var(--accent-2) 100%);
+        background-size:220% 220%;
+        color:transparent;
+        -webkit-background-clip:text;
+        background-clip:text;
+        animation:brandGlow 7s ease-in-out infinite;
+      }
+      .brand h1::after{
+        content:'';
+        position:absolute;
+        inset:-2px;
+        background:inherit;
+        filter:blur(12px);
+        opacity:.45;
+        pointer-events:none;
+        z-index:-1;
+      }
+    }
+    @keyframes brandGlow{
+      0%{background-position:0% 50%}
+      50%{background-position:100% 50%}
+      100%{background-position:0% 50%}
+    }
+
+    .btn{cursor:pointer;border:0;border-radius:12px;padding:10px 14px;color:#fff;font-weight:600;background:var(--panel-2);box-shadow:0 4px 16px var(--shadow);transition:transform .06s ease,box-shadow .2s ease,background .2s ease}
+    .btn:hover{transform:translateY(-1px);box-shadow:0 8px 26px var(--shadow)}
+    .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent-2))}
+    .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,.1);color:var(--muted)}
+
+    /* Layout */
+    .layout{display:flex;gap:18px;padding:16px 20px;align-items:stretch;flex:1;min-height:0}
+    .stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:14px}
+
+    .video-shell{position:relative;width:100%;aspect-ratio:16/9;background:#0b0d16;border-radius:var(--radius);overflow:hidden;box-shadow:0 12px 40px var(--shadow), inset 0 0 0 1px rgba(255,255,255,.04)}
+    .video-shell video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#0b0d16}
+
+    .live-badge{position:absolute;top:12px;left:12px;display:flex;gap:8px;align-items:center;padding:6px 10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);border-radius:999px;backdrop-filter:blur(6px)}
+    .dot{width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 3px rgba(239,68,68,.25)}
+
+    .overlay{position:absolute;bottom:12px;left:12px;right:12px;display:flex;justify-content:space-between;gap:12px}
+    .meta{display:flex;gap:10px;align-items:center;padding:12px;background:var(--panel);border-radius:var(--radius);border:1px solid rgba(255,255,255,.06);box-shadow:0 10px 26px var(--shadow)}
+    .meta .title{font-weight:700}
+    .settings-wrapper{position:absolute;bottom:18px;right:18px;display:flex;flex-direction:column;align-items:flex-end;gap:12px}
+    .icon-btn{width:40px;height:40px;padding:0;border-radius:50%;display:grid;place-items:center}
+    .icon-btn svg{width:18px;height:18px;fill:#fff;opacity:.8;transition:opacity .2s ease}
+    .icon-btn:hover svg{opacity:1}
+    .settings-panel{width:240px;padding:14px;background:var(--panel);border-radius:12px;border:1px solid rgba(255,255,255,.08);box-shadow:0 12px 28px var(--shadow);display:flex;flex-direction:column;gap:12px}
+    .settings-panel label{display:flex;flex-direction:column;font-size:13px;color:var(--muted);gap:6px}
+    .settings-panel select{width:100%;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:#111320;color:var(--text)}
+
+    /* Chat */
+    .chat{flex:0 0 360px;max-width:360px;display:flex;flex-direction:column;gap:10px;background:var(--panel);border-radius:var(--radius);padding:12px;box-shadow:0 12px 32px var(--shadow);border:1px solid rgba(255,255,255,.06);min-height:0}
+    .chat header{display:flex;justify-content:space-between;align-items:center}
+    .chat .messages{flex:1 1 auto;overflow-y:auto;min-height:0;padding-right:4px}
+    .chat .messages p{margin:8px 0;padding:8px 10px;background:var(--panel-2);border:1px solid rgba(255,255,255,.05);border-radius:10px}
+    .chat form{display:flex;gap:8px}
+    .chat input[type="text"]{flex:1;background:#0c0f19;border:1px solid rgba(255,255,255,.08);color:var(--text);padding:10px 12px;border-radius:10px;outline:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+    .chat button[type="submit"]{padding:10px 14px}
+
+    .hidden{display:none !important}
+    .notice{
+      margin:12px 20px 0;
+      padding:10px 14px;
+      border-radius:var(--radius);
+      background:rgba(239,68,68,.14);
+      border:1px solid rgba(239,68,68,.35);
+      color:#fca5a5;
+      font-size:14px;
+      line-height:1.4;
+    }
+
+    @media (max-width:980px){ 
+      .layout{flex-direction:column}
+      .chat{max-width:100%;flex-basis:auto}
+    }
+
+    /* Mobile UI (auto-enabled via JS) */
+    body.mobile .topbar{flex-wrap:wrap;gap:10px;padding:10px 14px}
+    body.mobile .brand h1{font-size:16px}
+    body.mobile .pill{font-size:11px;padding:4px 8px}
+    body.mobile .top-actions{width:100%;display:grid;grid-template-columns:repeat(3, minmax(0,1fr));gap:8px}
+    body.mobile .btn{padding:8px 10px;font-size:13px;border-radius:10px}
+    body.mobile .layout{padding:12px 12px 16px}
+    body.mobile .stage{gap:10px}
+    body.mobile .video-shell{aspect-ratio:auto;height:min(56vh, 420px)}
+    body.mobile .overlay{left:10px;right:10px;bottom:10px}
+    body.mobile .meta{padding:10px}
+    body.mobile .chat{max-width:none;min-height:200px;max-height:40vh;overflow:hidden}
+    body.mobile .chat .messages{max-height:none}
+    body.mobile .chat input[type="text"]{font-size:14px}
+
+    /* Landscape phone: favor video height */
+    body.mobile.landscape .video-shell{height:min(50vh, 340px)}
+    body.mobile.landscape .chat{max-height:34vh}
+
+    /* Mobile footer spacing (avoid overlapping chat input) */
+    body.mobile .layout{padding-bottom:12px}
+    body.mobile .chat{margin-bottom:8px}
+    body.mobile .footer-note{margin:8px 0 0;padding:0 8px calc(8px + env(safe-area-inset-bottom));font-size:12px}
+    body.mobile.keyboard-open .footer-note{display:none}
+    .footer-note{margin:24px 0;text-align:center;color:var(--muted);font-size:14px}
+
+  </style>
+</head>
+<body>
+  <!-- Top bar with brand and quick role actions -->
+  <nav class="topbar">
+    <div class="brand">
+      <div class="brand-logo" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M12 2l2.4 5.8L21 9.1l-4.6 4 1.2 6.1L12 16.9 6.4 19.2 7.6 13 3 9.1l6.6-1.3L12 2z" fill="white"/>
+        </svg>
+      </div>
+      <h1>Northstar</h1>
+      <span class="pill">P2P Streaming</span>
+    </div>
+    <div class="top-actions">
+      <button class="btn ghost" onclick="startViewer()">Join as Viewer</button>
+      <button class="btn primary" onclick="startStreamer()">Go Live</button>
+      <button class="btn" onclick="stopAll()">Stop</button>
+    </div>
+  </nav>
+  <div class="notice hidden" id="secureWarning">
+    Screen sharing requires serving Northstar over <strong>https://</strong>. Enable HTTPS on the host or access it via localhost to share your screen.
+  </div>
+
+  <!-- Main layout: stream stage + settings on the left, chat on the right -->
+  <main class="layout">
+    <section class="stage" aria-label="Stream stage">
+      <div class="video-shell">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <video id="remoteVideo" autoplay playsinline></video>
+
+        <div class="live-badge" id="liveBadge" hidden>
+          <span class="dot"></span>
+          <strong>LIVE</strong>
+          <span class="pill" id="viewerCount">0 viewers</span>
+        </div>
+
+      </div>
+      <!-- Collapsible settings gear + panel for advanced stream controls -->
+      <div class="settings-wrapper">
+        <button id="settingsToggle" class="btn icon-btn" type="button" aria-label="Open stream settings" aria-expanded="false" aria-controls="streamSettings">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.4.11-.6l-1.92-3.32c-.12-.21-.38-.3-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.486.486 0 0 0 14.39 2h-3.78c-.24 0-.45.17-.48.4l-.36 2.54c-.59.22-1.14.52-1.63.94l-2.39-.96a.485.485 0 0 0-.6.22L3.23 8.46a.5.5 0 0 0 .11.6l2.03 1.58c-.04.31-.07.64-.07.96 0 .32.03.63.07.94l-2.03 1.58a.5.5 0 0 0-.11.6l1.92 3.32c.12.21.38.3.6.22l2.39-.96c.49.41 1.04.75 1.63.94l.36 2.54c.03.23.24.4.48.4h3.78c.24 0 .45-.17.48-.4l.36-2.54c.59-.22 1.14-.53 1.63-.94l2.39.96c.22.09.48-.01.6-.22l1.92-3.32a.5.5 0 0 0-.11-.6l-2.03-1.58ZM12 15.5c-1.93 0-3.5-1.57-3.5-3.5S10.07 8.5 12 8.5s3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5Z"/>
+          </svg>
+        </button>
+        <div class="settings-panel hidden" id="streamSettings" role="group" aria-label="Stream settings" tabindex="-1">
+          <div class="settings-row">
+            <label for="qualityProfile">Quality preset
+              <select id="qualityProfile" title="Streaming Quality">
+                <option value="1080p60" selected>1080p 60fps</option>
+                <option value="720p60">720p 60fps</option>
+                <option value="720p30">720p 30fps</option>
+              </select>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label for="codecProfile">Codec preference
+              <select id="codecProfile" title="Codec Preference">
+                <option value="auto" selected>Auto Codec</option>
+                <option value="vp9">Prefer VP9</option>
+                <option value="h264">Prefer H.264</option>
+              </select>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label for="contentHint">Content hint
+              <select id="contentHint" title="Quality Hint">
+                <option value="motion">Smoother Motion</option>
+                <option value="detail" selected>Sharper Text</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="chat" aria-label="Live chat">
+      <header>
+        <strong>Chat</strong>
+        <span class="pill" id="roomLabel">room: default</span>
+      </header>
+      <div class="messages" id="chatMessages" aria-live="polite"></div>
+      <form id="chatForm" autocomplete="off">
+        <input type="text" id="chatInput" placeholder="Type a message!" />
+        <button type="submit" class="btn primary">Send</button>
+      </form>
+    </aside>
+  </main>
+
+  <p class='footer-note'>Project Northstar v0.7.0-Alpha: Built with WebRTC, Websocket, and Nodejs by RxFaction</p>
+
+  <!-- App logic: WebRTC signaling, capture controls, and chat -->
+  <script>
+    // References & initial state
+    const localEl  = document.getElementById('localVideo');
+    const remoteEl = document.getElementById('remoteVideo');
+    const liveBadge = document.getElementById('liveBadge');
+    const viewerCountEl = document.getElementById('viewerCount');
+    const contentHintSelect = document.getElementById('contentHint');
+    const settingsToggle = document.getElementById('settingsToggle');
+    const settingsPanel = document.getElementById('streamSettings');
+    const codecSelect = document.getElementById('codecProfile');
+    const qualitySelect = document.getElementById('qualityProfile');
+
+    const chatForm  = document.getElementById('chatForm');
+    const chatInput = document.getElementById('chatInput');
+    const chatMessages = document.getElementById('chatMessages');
+    const secureWarning = document.getElementById('secureWarning');
+    const footerNote = document.querySelector('.footer-note');
+    const chatPanel = document.querySelector('.chat');
+
+    // Mobile UI detection (class-based styling)
+    const bodyEl = document.body;
+    function updateViewportClasses(){
+      const isCoarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+      const isNarrow = window.innerWidth <= 980;
+      const isMobile = isCoarse || isNarrow;
+      const isLandscape = window.matchMedia && window.matchMedia('(orientation: landscape)').matches && window.innerHeight <= 520;
+      if (isMobile) bodyEl.classList.add('mobile'); else bodyEl.classList.remove('mobile');
+      if (isMobile && isLandscape) bodyEl.classList.add('landscape'); else bodyEl.classList.remove('landscape');
+      if (footerNote && chatPanel) {
+        if (isMobile && footerNote.parentElement !== chatPanel) {
+          chatPanel.appendChild(footerNote);
+        } else if (!isMobile && footerNote.parentElement !== bodyEl) {
+          bodyEl.appendChild(footerNote);
+        }
+      }
+    }
+    updateViewportClasses();
+    window.addEventListener('resize', updateViewportClasses);
+    window.addEventListener('orientationchange', updateViewportClasses);
+
+    // Mobile keyboard handling (iOS Chrome/Safari)
+    function updateKeyboardClass(){
+      if (!bodyEl.classList.contains('mobile')) {
+        bodyEl.classList.remove('keyboard-open');
+        return;
+      }
+      const vv = window.visualViewport;
+      if (vv) {
+        const delta = window.innerHeight - vv.height;
+        if (delta > 120) bodyEl.classList.add('keyboard-open');
+        else bodyEl.classList.remove('keyboard-open');
+      }
+    }
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', updateKeyboardClass);
+      window.visualViewport.addEventListener('scroll', updateKeyboardClass);
+    }
+    chatInput?.addEventListener('focus', () => bodyEl.classList.add('keyboard-open'));
+    chatInput?.addEventListener('blur', () => bodyEl.classList.remove('keyboard-open'));
+
+    // Quality + bitrate presets that mirror the gear dropdown
+    const QUALITY_PROFILES = {
+      '1080p60': { width: 1920, height: 1080, frameRate: 60, bitrate: 12_000_000, minBitrate: 8_000_000, degradationPreference: 'maintain-resolution', scalabilityMode: 'L1T3' },
+      '720p60':  { width: 1280, height: 720, frameRate: 60, bitrate: 7_000_000,  minBitrate: 4_000_000, degradationPreference: 'maintain-resolution', scalabilityMode: 'L1T3' },
+      '720p30':  { width: 1280, height: 720, frameRate: 30, bitrate: 4_000_000,  minBitrate: 2_500_000, degradationPreference: 'maintain-resolution', scalabilityMode: 'L1T2' }
+    };
+    // Optional codec overrides (auto falls back to browser defaults)
+    const CODEC_PREFERENCES = {
+      auto: null,
+      vp9: 'video/VP9',
+      h264: 'video/H264'
+    };
+
+    // Screen capture is only allowed on HTTPS (or localhost) so warn early
+    const SECURE_CONTEXT_OK = window.isSecureContext || ['localhost','127.0.0.1','::1'].includes(window.location.hostname);
+    if (!SECURE_CONTEXT_OK && secureWarning) {
+      secureWarning.classList.remove('hidden');
+    }
+
+    function closeSettingsPanel(){
+      if (!settingsPanel || settingsPanel.classList.contains('hidden')) return;
+      settingsPanel.classList.add('hidden');
+      settingsToggle?.setAttribute('aria-expanded','false');
+    }
+
+    // Hide both videos on load
+    localEl.classList.add('hidden');
+    remoteEl.classList.add('hidden');
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsHost = window.location.hostname || 'localhost';
+    const wsPort = '3000';                                                    // Signaling server stays on 3000 even when HTTP host runs on another port
+    const socket = new WebSocket(`${wsProtocol}://${wsHost}:${wsPort}`);      // New auto-detect active LAN address (in testing v0.5.1-alpha)
+    const peerConnections = new Map();
+    let peerConnection;
+    let localStream;
+    let micStream;
+    let role = null;
+    let clientId = null;
+    let streamerId = null;
+    let screenShareAlertShown = false;
+    let currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['1080p60'];
+    let currentCodecPreference = codecSelect?.value || 'auto';
+
+    function renderViewerCount(total){
+      if (!viewerCountEl) return;
+      const count = Number.isFinite(total) ? total : 0;
+      viewerCountEl.textContent = count === 1 ? '1 viewer' : `${count} viewers`;
+    }
+
+    function sendRoleState(){
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'role', role: role || 'unknown' }));
+      }
+    }
+
+    // Let the streamer adjust resolution/bitrate while live
+    qualitySelect?.addEventListener('change', async ()=>{
+      currentQualityProfile = QUALITY_PROFILES[qualitySelect.value] || QUALITY_PROFILES['1080p60'];
+      if (!localStream) return;
+      const vTrack = localStream.getVideoTracks()[0];
+      if (!vTrack) return;
+      await applyQualityConstraints(vTrack, currentQualityProfile);
+      if (role === 'streamer') {
+        for (const pc of peerConnections.values()) {
+          await tuneSenderParams(pc, currentQualityProfile, vTrack);
+        }
+      }
+    });
+
+    // Prompt streamer to restart if codec preference changes mid-stream
+    codecSelect?.addEventListener('change', ()=>{
+      currentCodecPreference = codecSelect.value || 'auto';
+      if (role === 'streamer') {
+        alert('Codec preference updated. Stop and Go Live again to apply the new codec.');
+      }
+    });
+    // Settings gear toggle + dismiss handlers
+    settingsToggle?.addEventListener('click', (event)=>{
+      event.stopPropagation();
+      if (!settingsPanel) return;
+      const hidden = settingsPanel.classList.toggle('hidden');
+      settingsToggle.setAttribute('aria-expanded', String(!hidden));
+      if (!hidden) {
+        settingsPanel.focus();
+      }
+    });
+    document.addEventListener('click', (event)=>{
+      if (!settingsPanel || settingsPanel.classList.contains('hidden')) return;
+      if (settingsPanel.contains(event.target) || settingsToggle?.contains(event.target)) return;
+      closeSettingsPanel();
+    });
+    document.addEventListener('keydown', event=>{
+      if (event.key === 'Escape') closeSettingsPanel();
+    });
+
+
+    // WebSocket lifecycle + signalling messages
+    socket.addEventListener('open', () => {
+      console.log('Websocket Connected');
+      sendRoleState();
+    });
+    socket.addEventListener('message', onSocketMessage);
+
+    async function onSocketMessage(event){
+      let raw = event.data; if(raw instanceof Blob) raw = await raw.text();
+      const data = JSON.parse(raw);
+      if (data.type === 'hello') {
+        clientId = data.id || clientId;
+        return;
+      }
+      if (data.type === 'viewerCount') {
+        renderViewerCount(data.count);
+        return;
+      }
+      if (data.type === 'streamer-ready') {
+        if (data.id) streamerId = data.id;
+        if (role === 'viewer') requestOfferFromStreamer();
+        return;
+      }
+      if (data.type === 'streamer-left') {
+        if (role === 'viewer') cleanupViewerConnection();
+        return;
+      }
+      if (data.type === 'peer-left') {
+        if (role === 'streamer') {
+          const viewerId = data.viewerId || data.id;
+          if (viewerId) closeStreamerPeer(viewerId);
+        }
+        return;
+      }
+      if (data.type === 'streamer-offline') {
+        return;
+      }
+
+      if (data.type === 'offer') {
+        if (role !== 'viewer') return;
+        if (data.to && clientId && data.to !== clientId) return;
+        streamerId = data.from || streamerId;
+        await handleViewerOffer(data.offer);
+        return;
+      }
+      if (data.type === 'answer') {
+        if (role !== 'streamer') return;
+        const viewerId = data.from || data.viewerId;
+        if (!viewerId) return;
+        const pc = peerConnections.get(viewerId);
+        if (!pc) return;
+        if (pc.signalingState !== 'have-local-offer') {
+          console.warn('Ignoring unexpected answer in state', pc.signalingState);
+          return;
+        }
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } catch (err) {
+          console.warn('Failed to apply remote answer', err);
+        }
+        return;
+      }
+      if (data.type === 'request-offer') {
+        if (role === 'streamer' && localStream) {
+          const viewerId = data.viewerId || data.from;
+          if (viewerId) await buildAndSendOfferForViewer(viewerId, { iceRestart: true });
+        }
+        return;
+      }
+      if (data.type === 'candidate') {
+        if (role === 'streamer') {
+          const viewerId = data.from || data.viewerId;
+          const pc = viewerId ? peerConnections.get(viewerId) : null;
+          if (!pc) return;
+          try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); }
+          catch (e) { console.error('Error adding ICE candidate', e); }
+          return;
+        }
+        if (role === 'viewer' && peerConnection) {
+          if (data.to && clientId && data.to !== clientId) return;
+          if (streamerId && data.from && data.from !== streamerId) return;
+          try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); }
+          catch (e) { console.error('Error adding ICE candidate', e); }
+          return;
+        }
+      }
+      if (data.type === 'chat') { appendMessage(data.message); }
+    }
+
+    // Create a new RTCPeerConnection for viewer
+    function createViewerPeerConnection(targetId){
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
+      });
+      pc.onicecandidate = (event)=>{
+        if(event.candidate && targetId){
+          socket.send(JSON.stringify({ type:'candidate', candidate:event.candidate, to: targetId, from: clientId }));
+        }
+      };
+      pc.ontrack = (event)=>{
+        let inboundStream = remoteEl.srcObject;
+        if (!(inboundStream instanceof MediaStream)) {
+          inboundStream = new MediaStream();
+        }
+        if (!inboundStream.getTracks().includes(event.track)) {
+          inboundStream.addTrack(event.track);
+        }
+        remoteEl.srcObject = inboundStream;
+        remoteEl.classList.remove('hidden');
+        localEl.classList.add('hidden');
+        liveBadge.hidden = (role !== 'viewer');
+        const playPromise = remoteEl.play?.();
+        if (playPromise && typeof playPromise.then === 'function') {
+          playPromise.catch(()=>{});
+        }
+      };
+      return pc;
+    }
+
+    // Create a new RTCPeerConnection for streamer
+    function createStreamerPeerConnection(viewerId){
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
+      });
+      pc.onicecandidate = (event)=>{
+        if(event.candidate && viewerId){
+          socket.send(JSON.stringify({ type:'candidate', candidate:event.candidate, to: viewerId, from: clientId }));
+        }
+      };
+      pc.oniceconnectionstatechange = ()=>{
+        if (['failed', 'disconnected', 'closed'].includes(pc.iceConnectionState)) {
+          closeStreamerPeer(viewerId);
+        }
+      };
+      return pc;
+    }
+
+    function closeStreamerPeer(viewerId){
+      const pc = peerConnections.get(viewerId);
+      if (!pc) return;
+      try { pc.close(); } catch {}
+      peerConnections.delete(viewerId);
+    }
+
+    function closeAllStreamerPeers(){
+      for (const viewerId of Array.from(peerConnections.keys())) {
+        closeStreamerPeer(viewerId);
+      }
+    }
+
+    function cleanupViewerConnection(){
+      if (peerConnection) {
+        try { peerConnection.close(); } catch {}
+        peerConnection = null;
+      }
+      remoteEl.srcObject = null;
+      remoteEl.classList.add('hidden');
+      liveBadge.hidden = true;
+      streamerId = null;
+    }
+
+    async function handleViewerOffer(offer){
+      if (peerConnection && peerConnection.signalingState !== 'closed') {
+        try { peerConnection.close(); } catch {}
+      }
+      peerConnection = createViewerPeerConnection(streamerId);
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      const payload = { type: 'answer', answer, from: clientId };
+      if (streamerId) payload.to = streamerId;
+      socket.send(JSON.stringify(payload));
+    }
+
+    // Start capture as streamer (display + optional microphone)
+    async function startStreamer(){
+      if (!SECURE_CONTEXT_OK) {
+        if (!screenShareAlertShown) {
+          alert('Screen sharing requires a secure context (HTTPS or localhost). Enable HTTPS on the host and reload.');
+          screenShareAlertShown = true;
+        }
+        return;
+      }
+
+      try {
+        closeSettingsPanel();
+        closeAllStreamerPeers();
+        currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['1080p60'];
+        currentCodecPreference = codecSelect?.value || 'auto';
+        const qualityConstraints = buildQualityConstraints(currentQualityProfile);
+
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { ...qualityConstraints.video, cursor: 'always' },
+          audio: true
+        });
+
+        localStream = stream;
+        micStream = null;
+        try{
+          // Request mic audio so viewers hear commentary in addition to the screen share
+          micStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              sampleRate: 48000
+            }
+          });
+        }catch(err){
+          console.warn('Microphone capture failed or was denied', err);
+        }
+        role = 'streamer';
+        streamerId = null;
+        sendRoleState();
+
+        localEl.srcObject = localStream;
+        localEl.classList.remove('hidden');
+        remoteEl.classList.add('hidden');
+        liveBadge.hidden = false;
+
+        const vTrack = localStream.getVideoTracks()[0];
+        if (vTrack) {
+          if ('contentHint' in vTrack) {
+            vTrack.contentHint = contentHintSelect.value; // 'motion' | 'detail'
+          }
+          await applyQualityConstraints(vTrack, currentQualityProfile);
+        }
+      } catch (err) {
+        console.error('Failed to start streaming', err);
+        liveBadge.hidden = true;
+        localEl.classList.add('hidden');
+        role = null;
+        sendRoleState();
+        if(micStream){
+          micStream.getTracks().forEach(t=>t.stop());
+          micStream = null;
+        }
+        if(localStream){
+          localStream.getTracks().forEach(t=>t.stop());
+          localStream = null;
+        }
+
+        const message = err && err.name === 'NotAllowedError'
+          ? 'Screen share permission was denied. Please allow access and try again.'
+          : 'Unable to start screen sharing. Verify HTTPS is enabled and browser permissions are granted.';
+        alert(message);
+      }
+    }
+
+    function startViewer(){
+      role = 'viewer';
+      sendRoleState();
+      streamerId = null;
+      cleanupViewerConnection();
+      localEl.classList.add('hidden');
+      remoteEl.classList.add('hidden');
+      requestOfferFromStreamer();
+    }
+
+    function stopAll(){
+      try{
+        if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
+        if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream = null; }
+        closeAllStreamerPeers();
+        cleanupViewerConnection();
+      }catch{}
+      localEl.classList.add('hidden');
+      remoteEl.classList.add('hidden');
+      liveBadge.hidden = true;
+      role = null;
+      streamerId = null;
+      sendRoleState();
+    }
+
+    function buildQualityConstraints(profile){
+      return {
+        video: {
+          frameRate: profile?.frameRate ? { ideal: profile.frameRate, max: profile.frameRate } : undefined,
+          width: profile?.width ? { ideal: profile.width, max: profile.width } : undefined,
+          height: profile?.height ? { ideal: profile.height, max: profile.height } : undefined
+        }
+      };
+    }
+
+    async function applyQualityConstraints(track, profile){
+      if (!track || typeof track.applyConstraints !== 'function') return;
+      const constraints = {};
+      if (profile?.width) constraints.width = profile.width;
+      if (profile?.height) constraints.height = profile.height;
+      if (profile?.frameRate) constraints.frameRate = { ideal: profile.frameRate, max: profile.frameRate };
+      try{
+        await track.applyConstraints(constraints);
+      }catch(e){
+        console.warn('applyConstraints failed, stream may exceed target profile', e);
+      }
+    }
+
+    async function applyCodecPreference(pc, codecKey){
+      if (!pc || typeof RTCRtpSender === 'undefined' || !RTCRtpSender.getCapabilities) return;
+      const mime = CODEC_PREFERENCES[codecKey];
+      if (!mime) return;
+      const capabilities = RTCRtpSender.getCapabilities('video');
+      if (!capabilities || !capabilities.codecs || !capabilities.codecs.length) return;
+      const lowerMime = mime.toLowerCase();
+      const preferred = capabilities.codecs.filter(c => c.mimeType.toLowerCase() === lowerMime);
+      if (!preferred.length) {
+        console.warn(`Codec ${mime} not supported on this browser`);
+        return;
+      }
+      const others = capabilities.codecs.filter(c => c.mimeType.toLowerCase() !== lowerMime);
+      const order = [...preferred, ...others];
+      pc.getTransceivers().forEach(trans => {
+        if (trans.sender?.track?.kind === 'video' && typeof trans.setCodecPreferences === 'function') {
+          try {
+            trans.setCodecPreferences(order);
+          } catch (e) {
+            console.warn('Failed to apply codec preferences', e);
+          }
+        }
+      });
+    }
+
+    // Streamer helper - build connection per viewer and push SDP offer
+    async function buildAndSendOfferForViewer(viewerId, { iceRestart = false } = {}){
+      if (!localStream || !viewerId) return;
+      const videoTrack = localStream.getVideoTracks()[0] || null;
+
+      const existing = peerConnections.get(viewerId);
+      if (existing) {
+        try { existing.close(); } catch {}
+      }
+
+      const pc = createStreamerPeerConnection(viewerId);
+      peerConnections.set(viewerId, pc);
+      getOutboundTracks().forEach(({ track, stream }) => pc.addTrack(track, stream));
+      await applyCodecPreference(pc, currentCodecPreference);
+      await tuneSenderParams(pc, currentQualityProfile, videoTrack);
+
+      const offer = await pc.createOffer({ iceRestart });
+      await pc.setLocalDescription(offer);
+      socket.send(JSON.stringify({ type:'offer', offer, to: viewerId, from: clientId }));
+    }
+
+    // Viewer helper - ask the active streamer to send a new offer
+    function requestOfferFromStreamer(){
+      const payload = { type: 'request-offer' };
+      if (clientId) payload.viewerId = clientId;
+      if (!socket) return;
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(payload));
+      } else {
+        const once = () => {
+          socket.send(JSON.stringify(payload));
+        };
+        socket.addEventListener('open', once, { once: true });
+      }
+    }
+
+    async function tuneSenderParams(pc, profile, track){
+      const sender = pc && pc.getSenders().find(s => s.track && s.track.kind === 'video');
+      if(!sender) return;
+      const params = sender.getParameters();
+      if(!params.encodings || !params.encodings.length) params.encodings = [{}];
+      const enc = params.encodings[0];
+
+      if(profile?.bitrate) enc.maxBitrate = profile.bitrate;
+      if(profile?.minBitrate) enc.minBitrate = profile.minBitrate;
+      if(profile?.frameRate) enc.maxFramerate = profile.frameRate;
+      if(profile?.scalabilityMode) enc.scalabilityMode = profile.scalabilityMode;
+      enc.scaleResolutionDownBy = 1;
+
+      if (track && typeof track.getSettings === 'function' && profile?.width) {
+        const settings = track.getSettings();
+        if (settings && settings.width && settings.width > profile.width) {
+          const scale = settings.width / profile.width;
+          if (scale > 1.05) enc.scaleResolutionDownBy = scale;
+        }
+      }
+
+      params.degradationPreference = profile?.degradationPreference || 'maintain-resolution';
+      enc.priority = 'high';
+      enc.networkPriority = 'high';
+
+      try{ await sender.setParameters(params); } catch(e){ console.warn('setParameters failed', e); }
+    }
+
+    function getOutboundTracks(){
+      const tracks = [];
+      if (localStream) {
+        localStream.getTracks().forEach(track => tracks.push({ track, stream: localStream }));
+      }
+      if (micStream) {
+        micStream.getAudioTracks().forEach(track => tracks.push({ track, stream: micStream }));
+      }
+      return tracks;
+    }
+
+    function appendMessage(msg){
+      const p = document.createElement('p'); p.textContent = msg;
+      chatMessages.appendChild(p); chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // Enter-to-send via form submit
+    if (chatForm && chatInput) {
+      chatForm.addEventListener('submit', (e)=>{ e.preventDefault(); sendMessage(); });
+    }
+
+    function sendMessage(){
+      const message = chatInput.value.trim(); if(!message) return;
+      socket.send(JSON.stringify({ type:'chat', message }));
+      appendMessage(`You: ${message}`); chatInput.value = '';
+    }
+
+    // Allow live switching of contentHint while streaming
+    contentHintSelect.addEventListener('change', ()=>{
+      if(!localStream) return; const vTrack = localStream.getVideoTracks()[0];
+      if(vTrack && 'contentHint' in vTrack) vTrack.contentHint = contentHintSelect.value;
+    });
+  </script>
+</body>
+</html>
