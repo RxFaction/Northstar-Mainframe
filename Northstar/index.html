@@ -325,20 +325,28 @@
     const ICE_RESTART_RETRY_MS = 15_000;
     const MAX_PENDING_ICE_CANDIDATES = 128;
     const LEGACY_NEGOTIATION_ID = 'legacy';
+    const LEGACY_CONNECTION_ID = 'legacy-connection';
     const peerConnections = new Map();
     const streamerRecoveryTimers = new Map();
-    const streamerRecoveriesInFlight = new Set();
+    const streamerNegotiationTasks = new Map();
+    const pendingStreamerIceRestarts = new Set();
     const candidateStates = new WeakMap();
     const pendingStreamerCandidates = new Map();
     const pendingViewerCandidates = new Map();
+    const retiredStreamerConnectionIds = new Map();
+    const retiredViewerConnectionIds = new Set();
     let peerConnection;
+    let viewerOfferChain = Promise.resolve();
+    let viewerOfferEpoch = 0;
     let viewerRecoveryTimer = null;
     let localStream;
     let micStream;
     let role = null;
     let clientId = null;
     let streamerId = null;
+    let requestedViewerConnectionId = null;
     let negotiationCounter = 0;
+    let connectionCounter = 0;
     let screenShareAlertShown = false;
     let currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['1080p60'];
     let currentCodecPreference = codecSelect?.value || 'auto';
@@ -426,7 +434,10 @@
       if (data.type === 'peer-left') {
         if (role === 'streamer') {
           const viewerId = data.viewerId || data.id;
-          if (viewerId) closeStreamerPeer(viewerId);
+          if (viewerId) {
+            closeStreamerPeer(viewerId);
+            retiredStreamerConnectionIds.delete(viewerId);
+          }
         }
         return;
       }
@@ -438,9 +449,10 @@
         if (role !== 'viewer') return;
         if (data.to && clientId && data.to !== clientId) return;
         streamerId = data.from || streamerId;
-        await handleViewerOffer(data.offer, {
+        await queueViewerOffer(data.offer, {
           iceRestart: data.iceRestart === true,
-          negotiationId: data.negotiationId
+          negotiationId: data.negotiationId,
+          connectionId: data.connectionId
         });
         return;
       }
@@ -450,6 +462,17 @@
         if (!viewerId) return;
         const pc = peerConnections.get(viewerId);
         if (!pc) return;
+        const connectionId = normalizeConnectionId(
+          data.connectionId || pc.northstarConnectionId
+        );
+        if (
+          data.connectionId
+          && pc.northstarConnectionId
+          && connectionId !== pc.northstarConnectionId
+        ) {
+          console.warn(`Ignoring answer from an old connection for viewer ${viewerId}`);
+          return;
+        }
         const negotiationId = normalizeNegotiationId(
           data.negotiationId || pc.northstarNegotiationId
         );
@@ -470,8 +493,14 @@
             pc,
             new RTCSessionDescription(data.answer),
             `viewer ${viewerId}`,
-            negotiationId
+            negotiationId,
+            connectionId
           );
+          pc.northstarNegotiationInProgress = false;
+          pc.northstarNegotiationKind = null;
+          if (pendingStreamerIceRestarts.delete(viewerId)) {
+            await restartStreamerIce(viewerId, pc);
+          }
         } catch (err) {
           console.warn('Failed to apply remote answer', err);
         }
@@ -483,9 +512,15 @@
           if (!viewerId) return;
           const pc = peerConnections.get(viewerId);
           if (data.iceRestart === true && pc && pc.signalingState !== 'closed') {
+            if (!candidateBelongsToConnection(data.connectionId, pc)) {
+              console.warn(`Ignoring ICE restart request from an old connection for viewer ${viewerId}`);
+              return;
+            }
             await restartStreamerIce(viewerId, pc);
           } else {
-            await buildAndSendOfferForViewer(viewerId);
+            await buildAndSendOfferForViewer(viewerId, {
+              requestedConnectionId: data.connectionId
+            });
           }
         }
         return;
@@ -494,13 +529,19 @@
         if (role === 'streamer') {
           const viewerId = data.from || data.viewerId;
           if (!viewerId) return;
+          const pc = peerConnections.get(viewerId);
+          if (!candidateBelongsToConnection(data.connectionId, pc)) {
+            console.warn(`Ignoring ICE candidate from an old connection for viewer ${viewerId}`);
+            return;
+          }
           await receiveRemoteCandidate({
             candidateInit: data.candidate,
             label: `viewer ${viewerId}`,
-            pc: peerConnections.get(viewerId),
+            pc,
             pendingCandidates: pendingStreamerCandidates,
             peerId: viewerId,
-            negotiationId: data.negotiationId
+            negotiationId: data.negotiationId,
+            connectionId: data.connectionId
           });
           return;
         }
@@ -509,13 +550,18 @@
           if (streamerId && data.from && data.from !== streamerId) return;
           const sourceId = data.from || streamerId;
           if (!sourceId) return;
+          if (!candidateBelongsToConnection(data.connectionId, peerConnection)) {
+            console.warn(`Ignoring ICE candidate from an old connection for streamer ${sourceId}`);
+            return;
+          }
           await receiveRemoteCandidate({
             candidateInit: data.candidate,
             label: `streamer ${sourceId}`,
             pc: peerConnection,
             pendingCandidates: pendingViewerCandidates,
             peerId: sourceId,
-            negotiationId: data.negotiationId
+            negotiationId: data.negotiationId,
+            connectionId: data.connectionId
           });
           return;
         }
@@ -524,16 +570,18 @@
     }
 
     // Create a new RTCPeerConnection for viewer
-    function createViewerPeerConnection(targetId){
+    function createViewerPeerConnection(targetId, connectionId){
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
       });
+      pc.northstarConnectionId = normalizeConnectionId(connectionId);
       pc.onicecandidate = (event)=>{
         if(event.candidate && targetId){
           socket.send(JSON.stringify({
             type:'candidate',
             candidate:event.candidate,
             negotiationId: pc.northstarNegotiationId,
+            connectionId: pc.northstarConnectionId,
             to: targetId,
             from: clientId
           }));
@@ -573,16 +621,18 @@
     }
 
     // Create a new RTCPeerConnection for streamer
-    function createStreamerPeerConnection(viewerId){
+    function createStreamerPeerConnection(viewerId, connectionId){
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
       });
+      pc.northstarConnectionId = normalizeConnectionId(connectionId);
       pc.onicecandidate = (event)=>{
         if(event.candidate && viewerId){
           socket.send(JSON.stringify({
             type:'candidate',
             candidate:event.candidate,
             negotiationId: pc.northstarNegotiationId,
+            connectionId: pc.northstarConnectionId,
             to: viewerId,
             from: clientId
           }));
@@ -609,6 +659,7 @@
       if (!state) {
         state = {
           activeNegotiationId: LEGACY_NEGOTIATION_ID,
+          activeConnectionId: LEGACY_CONNECTION_ID,
           awaitingRemoteDescription: false,
           draining: false,
           queue: []
@@ -624,15 +675,37 @@
         : LEGACY_NEGOTIATION_ID;
     }
 
+    function normalizeConnectionId(connectionId){
+      return typeof connectionId === 'string' && connectionId.length > 0 && connectionId.length <= 128
+        ? connectionId
+        : LEGACY_CONNECTION_ID;
+    }
+
     function createNegotiationId(){
       negotiationCounter += 1;
       return `${clientId || 'streamer'}-${Date.now().toString(36)}-${negotiationCounter.toString(36)}`;
+    }
+
+    function createConnectionId(){
+      connectionCounter += 1;
+      return `${clientId || 'client'}-pc-${Date.now().toString(36)}-${connectionCounter.toString(36)}`;
+    }
+
+    function candidateBelongsToConnection(connectionId, pc){
+      if (!pc || !connectionId || !pc.northstarConnectionId) return true;
+      return normalizeConnectionId(connectionId) === pc.northstarConnectionId;
     }
 
     function candidateMatchesNegotiation(candidateRecord, negotiationId){
       return candidateRecord.negotiationId === negotiationId
         || candidateRecord.negotiationId === LEGACY_NEGOTIATION_ID
         || negotiationId === LEGACY_NEGOTIATION_ID;
+    }
+
+    function candidateMatchesConnection(candidateRecord, connectionId){
+      return candidateRecord.connectionId === connectionId
+        || candidateRecord.connectionId === LEGACY_CONNECTION_ID
+        || connectionId === LEGACY_CONNECTION_ID;
     }
 
     function appendCandidate(queue, candidateRecord, label){
@@ -655,13 +728,17 @@
       }
     }
 
-    function takeCandidatesForNegotiation(pc, negotiationId){
+    function takeCandidatesForNegotiation(pc, negotiationId, connectionId){
       if (!pc) return [];
       const state = getCandidateState(pc);
       const normalizedId = normalizeNegotiationId(negotiationId);
+      const normalizedConnectionId = normalizeConnectionId(connectionId);
       const selected = [];
       state.queue = state.queue.filter(candidateRecord => {
-        if (!candidateMatchesNegotiation(candidateRecord, normalizedId)) return true;
+        if (
+          !candidateMatchesNegotiation(candidateRecord, normalizedId)
+          || !candidateMatchesConnection(candidateRecord, normalizedConnectionId)
+        ) return true;
         selected.push(candidateRecord);
         return false;
       });
@@ -683,9 +760,10 @@
       candidateStates.delete(pc);
     }
 
-    function markAwaitingRemoteDescription(pc, negotiationId){
+    function markAwaitingRemoteDescription(pc, negotiationId, connectionId){
       const state = getCandidateState(pc);
       state.activeNegotiationId = normalizeNegotiationId(negotiationId);
+      state.activeConnectionId = normalizeConnectionId(connectionId);
       state.awaitingRemoteDescription = true;
     }
 
@@ -693,6 +771,7 @@
       candidateInit,
       label,
       negotiationId,
+      connectionId,
       pc,
       pendingCandidates,
       peerId
@@ -706,7 +785,8 @@
       }
       const candidateRecord = {
         candidate,
-        negotiationId: normalizeNegotiationId(negotiationId)
+        negotiationId: normalizeNegotiationId(negotiationId),
+        connectionId: normalizeConnectionId(connectionId)
       };
 
       if (!pc || pc.signalingState === 'closed') {
@@ -743,6 +823,7 @@
         ) {
           const candidateIndex = state.queue.findIndex(candidateRecord => (
             candidateMatchesNegotiation(candidateRecord, state.activeNegotiationId)
+            && candidateMatchesConnection(candidateRecord, state.activeConnectionId)
           ));
           if (candidateIndex < 0) break;
           const [{ candidate }] = state.queue.splice(candidateIndex, 1);
@@ -757,9 +838,16 @@
       }
     }
 
-    async function setRemoteDescriptionAndDrainCandidates(pc, description, label, negotiationId){
+    async function setRemoteDescriptionAndDrainCandidates(
+      pc,
+      description,
+      label,
+      negotiationId,
+      connectionId
+    ){
       const state = getCandidateState(pc);
       state.activeNegotiationId = normalizeNegotiationId(negotiationId);
+      state.activeConnectionId = normalizeConnectionId(connectionId);
       state.awaitingRemoteDescription = true;
       try {
         await pc.setRemoteDescription(description);
@@ -778,7 +866,12 @@
       streamerRecoveryTimers.delete(viewerId);
     }
 
-    function scheduleStreamerRecovery(viewerId, pc, delay){
+    function scheduleStreamerRecovery(
+      viewerId,
+      pc,
+      delay,
+      { replaceOutstanding = false } = {}
+    ){
       if (peerConnections.get(viewerId) !== pc || pc.signalingState === 'closed') return;
       const existingTimer = streamerRecoveryTimers.get(viewerId);
       if (existingTimer) clearTimeout(existingTimer);
@@ -787,28 +880,83 @@
         streamerRecoveryTimers.delete(viewerId);
         if (peerConnections.get(viewerId) !== pc || pc.signalingState === 'closed') return;
         if (['connected', 'completed'].includes(pc.iceConnectionState)) return;
-        await restartStreamerIce(viewerId, pc);
+        await restartStreamerIce(viewerId, pc, { replaceOutstanding });
       }, delay);
       streamerRecoveryTimers.set(viewerId, timer);
     }
 
-    async function restartStreamerIce(viewerId, pc){
-      if (peerConnections.get(viewerId) !== pc || pc.signalingState === 'closed') return;
-      if (streamerRecoveriesInFlight.has(viewerId)) return;
-      streamerRecoveriesInFlight.add(viewerId);
+    function runStreamerNegotiation(viewerId, kind, operation){
+      const active = streamerNegotiationTasks.get(viewerId);
+      if (active) {
+        if (kind === 'ice-restart' && active.kind !== 'ice-restart') {
+          pendingStreamerIceRestarts.add(viewerId);
+        }
+        return active.promise;
+      }
 
+      const task = { kind, promise: null };
+      task.promise = Promise.resolve().then(operation);
+      streamerNegotiationTasks.set(viewerId, task);
+
+      const finish = ()=>{
+        if (streamerNegotiationTasks.get(viewerId) !== task) return;
+        streamerNegotiationTasks.delete(viewerId);
+        const currentPc = peerConnections.get(viewerId);
+        if (
+          pendingStreamerIceRestarts.has(viewerId)
+          && currentPc
+          && currentPc.signalingState === 'stable'
+          && !currentPc.northstarNegotiationInProgress
+        ) {
+          pendingStreamerIceRestarts.delete(viewerId);
+          void restartStreamerIce(viewerId, currentPc);
+        }
+      };
+      task.promise.then(finish, finish);
+      return task.promise;
+    }
+
+    function restartStreamerIce(viewerId, pc, options = {}){
+      if (peerConnections.get(viewerId) !== pc || pc.signalingState === 'closed') return;
+      return runStreamerNegotiation(
+        viewerId,
+        'ice-restart',
+        () => restartStreamerIceUnlocked(viewerId, pc, options)
+      );
+    }
+
+    async function restartStreamerIceUnlocked(
+      viewerId,
+      pc,
+      { replaceOutstanding = false } = {}
+    ){
+      if (peerConnections.get(viewerId) !== pc || pc.signalingState === 'closed') return;
       try {
+        if (pc.northstarNegotiationInProgress) {
+          if (replaceOutstanding) {
+            console.warn(`Peer ${viewerId} did not answer the ICE restart; rebuilding connection`);
+            await buildAndSendOfferForViewerUnlocked(viewerId, { replaceInProgress: true });
+            return;
+          }
+          if (pc.northstarNegotiationKind !== 'ice-restart') {
+            pendingStreamerIceRestarts.add(viewerId);
+          }
+          return;
+        }
         if (pc.signalingState !== 'stable') {
           console.warn(`Peer ${viewerId} cannot restart ICE from ${pc.signalingState}; rebuilding connection`);
-          await buildAndSendOfferForViewer(viewerId);
+          await buildAndSendOfferForViewerUnlocked(viewerId, { replaceInProgress: true });
           return;
         }
 
         if (typeof pc.restartIce === 'function') pc.restartIce();
         const negotiationId = createNegotiationId();
         pc.northstarNegotiationId = negotiationId;
-        markAwaitingRemoteDescription(pc, negotiationId);
+        pc.northstarNegotiationInProgress = true;
+        pc.northstarNegotiationKind = 'ice-restart';
+        markAwaitingRemoteDescription(pc, negotiationId, pc.northstarConnectionId);
         const offer = await pc.createOffer({ iceRestart: true });
+        if (peerConnections.get(viewerId) !== pc || pc.signalingState === 'closed') return;
         await pc.setLocalDescription(offer);
         if (peerConnections.get(viewerId) !== pc) return;
 
@@ -817,31 +965,42 @@
           offer: pc.localDescription || offer,
           iceRestart: true,
           negotiationId,
+          connectionId: pc.northstarConnectionId,
           to: viewerId,
           from: clientId
         }));
-        scheduleStreamerRecovery(viewerId, pc, ICE_RESTART_RETRY_MS);
+        scheduleStreamerRecovery(
+          viewerId,
+          pc,
+          ICE_RESTART_RETRY_MS,
+          { replaceOutstanding: true }
+        );
       } catch (error) {
         console.warn(`ICE restart failed for peer ${viewerId}; rebuilding connection`, error);
         if (peerConnections.get(viewerId) === pc && localStream) {
           try {
-            await buildAndSendOfferForViewer(viewerId);
+            await buildAndSendOfferForViewerUnlocked(viewerId, { replaceInProgress: true });
           } catch (rebuildError) {
             console.warn(`Failed to rebuild connection for peer ${viewerId}`, rebuildError);
           }
         }
-      } finally {
-        streamerRecoveriesInFlight.delete(viewerId);
       }
     }
 
-    function closeStreamerPeer(viewerId, expectedPc = null){
+    function closeStreamerPeer(
+      viewerId,
+      expectedPc = null,
+      { retireConnection = true } = {}
+    ){
       const pc = peerConnections.get(viewerId);
       if (expectedPc && pc !== expectedPc) return;
       clearStreamerRecovery(viewerId);
-      streamerRecoveriesInFlight.delete(viewerId);
+      pendingStreamerIceRestarts.delete(viewerId);
       pendingStreamerCandidates.delete(viewerId);
       if (!pc) return;
+      if (retireConnection) {
+        rememberRetiredStreamerConnection(viewerId, pc.northstarConnectionId);
+      }
       peerConnections.delete(viewerId);
       clearCandidateState(pc);
       try { pc.close(); } catch {}
@@ -852,9 +1011,13 @@
         closeStreamerPeer(viewerId);
       }
       pendingStreamerCandidates.clear();
+      pendingStreamerIceRestarts.clear();
+      retiredStreamerConnectionIds.clear();
     }
 
     function cleanupViewerConnection(){
+      viewerOfferEpoch += 1;
+      requestedViewerConnectionId = null;
       clearViewerRecovery();
       if (peerConnection) {
         clearCandidateState(peerConnection);
@@ -862,6 +1025,7 @@
         peerConnection = null;
       }
       pendingViewerCandidates.clear();
+      retiredViewerConnectionIds.clear();
       remoteEl.srcObject = null;
       remoteEl.classList.add('hidden');
       liveBadge.hidden = true;
@@ -885,18 +1049,77 @@
       }, delay);
     }
 
-    async function handleViewerOffer(offer, { iceRestart = false, negotiationId } = {}){
+    function queueViewerOffer(offer, options){
+      const queuedEpoch = viewerOfferEpoch;
+      const queuedOffer = viewerOfferChain.then(() => {
+        if (queuedEpoch !== viewerOfferEpoch || role !== 'viewer') return;
+        return handleViewerOffer(offer, options);
+      });
+      viewerOfferChain = queuedOffer.catch(error => {
+        console.warn('Failed to process queued offer', error);
+      });
+      return viewerOfferChain;
+    }
+
+    function rememberRetiredViewerConnection(connectionId){
+      if (!connectionId || connectionId === LEGACY_CONNECTION_ID) return;
+      retiredViewerConnectionIds.add(connectionId);
+      if (retiredViewerConnectionIds.size > 32) {
+        retiredViewerConnectionIds.delete(retiredViewerConnectionIds.values().next().value);
+      }
+    }
+
+    function rememberRetiredStreamerConnection(viewerId, connectionId){
+      if (!viewerId || !connectionId || connectionId === LEGACY_CONNECTION_ID) return;
+      let retiredIds = retiredStreamerConnectionIds.get(viewerId);
+      if (!retiredIds) {
+        retiredIds = new Set();
+        retiredStreamerConnectionIds.set(viewerId, retiredIds);
+      }
+      retiredIds.add(connectionId);
+      if (retiredIds.size > 32) {
+        retiredIds.delete(retiredIds.values().next().value);
+      }
+    }
+
+    function isRetiredStreamerConnection(viewerId, connectionId){
+      return Boolean(connectionId && retiredStreamerConnectionIds.get(viewerId)?.has(connectionId));
+    }
+
+    async function handleViewerOffer(
+      offer,
+      { iceRestart = false, negotiationId, connectionId } = {}
+    ){
       clearViewerRecovery();
       const normalizedNegotiationId = normalizeNegotiationId(negotiationId);
+      const normalizedConnectionId = normalizeConnectionId(connectionId);
+      if (retiredViewerConnectionIds.has(normalizedConnectionId)) {
+        console.warn('Ignoring offer for a retired connection');
+        return;
+      }
+      requestedViewerConnectionId = normalizedConnectionId;
+      if (
+        peerConnection
+        && peerConnection.northstarConnectionId === normalizedConnectionId
+        && peerConnection.northstarNegotiationId === normalizedNegotiationId
+      ) {
+        console.warn('Ignoring duplicate offer for the active negotiation');
+        return;
+      }
       const canReuseConnection = iceRestart
         && peerConnection
+        && peerConnection.northstarConnectionId === normalizedConnectionId
         && peerConnection.signalingState === 'stable';
 
       if (!canReuseConnection) {
         const carriedCandidates = takeCandidatesForNegotiation(
           peerConnection,
-          normalizedNegotiationId
+          normalizedNegotiationId,
+          normalizedConnectionId
         );
+        if (peerConnection) {
+          rememberRetiredViewerConnection(peerConnection.northstarConnectionId);
+        }
         if (peerConnection && peerConnection.signalingState !== 'closed') {
           clearCandidateState(peerConnection);
           try { peerConnection.close(); } catch {}
@@ -904,26 +1127,33 @@
         for (const pendingId of pendingViewerCandidates.keys()) {
           if (pendingId !== streamerId) pendingViewerCandidates.delete(pendingId);
         }
-        peerConnection = createViewerPeerConnection(streamerId);
+        peerConnection = createViewerPeerConnection(streamerId, normalizedConnectionId);
         appendCandidatesToConnection(
           peerConnection,
           carriedCandidates,
           `streamer ${streamerId || 'unknown'}`
         );
       }
+      peerConnection.northstarConnectionId = normalizedConnectionId;
       peerConnection.northstarNegotiationId = normalizedNegotiationId;
+      const pc = peerConnection;
       await setRemoteDescriptionAndDrainCandidates(
-        peerConnection,
+        pc,
         new RTCSessionDescription(offer),
         `streamer ${streamerId || 'unknown'}`,
-        normalizedNegotiationId
+        normalizedNegotiationId,
+        normalizedConnectionId
       );
-      const answer = await peerConnection.createAnswer();
-      await peerConnection.setLocalDescription(answer);
+      if (peerConnection !== pc || pc.signalingState === 'closed') return;
+      const answer = await pc.createAnswer();
+      if (peerConnection !== pc || pc.signalingState === 'closed') return;
+      await pc.setLocalDescription(answer);
+      if (peerConnection !== pc || pc.signalingState === 'closed') return;
       const payload = {
         type: 'answer',
-        answer: peerConnection.localDescription || answer,
+        answer: pc.localDescription || answer,
         negotiationId: normalizedNegotiationId,
+        connectionId: normalizedConnectionId,
         from: clientId
       };
       if (streamerId) payload.to = streamerId;
@@ -1078,39 +1308,93 @@
     }
 
     // Streamer helper - build connection per viewer and push SDP offer
-    async function buildAndSendOfferForViewer(viewerId){
+    function buildAndSendOfferForViewer(viewerId, options = {}){
+      if (!localStream || !viewerId) return;
+      return runStreamerNegotiation(
+        viewerId,
+        'new-connection',
+        () => buildAndSendOfferForViewerUnlocked(viewerId, options)
+      );
+    }
+
+    async function buildAndSendOfferForViewerUnlocked(
+      viewerId,
+      { replaceInProgress = false, requestedConnectionId = null } = {}
+    ){
       if (!localStream || !viewerId) return;
       const videoTrack = localStream.getVideoTracks()[0] || null;
 
       const existing = peerConnections.get(viewerId);
+      const normalizedRequestedConnectionId = requestedConnectionId
+        ? normalizeConnectionId(requestedConnectionId)
+        : null;
+      if (isRetiredStreamerConnection(viewerId, normalizedRequestedConnectionId)) {
+        console.warn(`Ignoring request for a retired connection from viewer ${viewerId}`);
+        return;
+      }
+      if (
+        existing
+        && normalizedRequestedConnectionId
+        && existing.northstarConnectionId === normalizedRequestedConnectionId
+        && !replaceInProgress
+      ) {
+        return;
+      }
+      if (existing?.northstarNegotiationInProgress && !replaceInProgress) {
+        return;
+      }
       if (existing) {
         closeStreamerPeer(viewerId, existing);
       }
 
-      const pc = createStreamerPeerConnection(viewerId);
+      const connectionId = normalizedRequestedConnectionId || createConnectionId();
+      const pc = createStreamerPeerConnection(viewerId, connectionId);
       peerConnections.set(viewerId, pc);
-      getOutboundTracks().forEach(({ track, stream }) => pc.addTrack(track, stream));
-      await applyCodecPreference(pc, currentCodecPreference);
-      await tuneSenderParams(pc, currentQualityProfile, videoTrack);
+      try {
+        getOutboundTracks().forEach(({ track, stream }) => pc.addTrack(track, stream));
+        await applyCodecPreference(pc, currentCodecPreference);
+        await tuneSenderParams(pc, currentQualityProfile, videoTrack);
+        if (peerConnections.get(viewerId) !== pc || pc.signalingState === 'closed') return;
 
-      const negotiationId = createNegotiationId();
-      pc.northstarNegotiationId = negotiationId;
-      markAwaitingRemoteDescription(pc, negotiationId);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.send(JSON.stringify({
-        type:'offer',
-        offer: pc.localDescription || offer,
-        iceRestart: false,
-        negotiationId,
-        to: viewerId,
-        from: clientId
-      }));
+        const negotiationId = createNegotiationId();
+        pc.northstarNegotiationId = negotiationId;
+        pc.northstarNegotiationInProgress = true;
+        pc.northstarNegotiationKind = 'new-connection';
+        markAwaitingRemoteDescription(pc, negotiationId, connectionId);
+        const offer = await pc.createOffer();
+        if (peerConnections.get(viewerId) !== pc || pc.signalingState === 'closed') return;
+        await pc.setLocalDescription(offer);
+        if (peerConnections.get(viewerId) !== pc || pc.signalingState === 'closed') return;
+        socket.send(JSON.stringify({
+          type:'offer',
+          offer: pc.localDescription || offer,
+          iceRestart: false,
+          negotiationId,
+          connectionId,
+          to: viewerId,
+          from: clientId
+        }));
+      } catch (error) {
+        if (peerConnections.get(viewerId) === pc) {
+          closeStreamerPeer(viewerId, pc, { retireConnection: false });
+        }
+        console.warn(`Failed to create offer for viewer ${viewerId}`, error);
+      }
     }
 
     // Viewer helper - ask the active streamer to send a new offer
     function requestOfferFromStreamer({ iceRestart = false } = {}){
       const payload = { type: 'request-offer', iceRestart };
+      if (iceRestart) {
+        if (peerConnection?.northstarConnectionId) {
+          payload.connectionId = peerConnection.northstarConnectionId;
+        }
+      } else {
+        if (!requestedViewerConnectionId) {
+          requestedViewerConnectionId = createConnectionId();
+        }
+        payload.connectionId = requestedViewerConnectionId;
+      }
       if (clientId) payload.viewerId = clientId;
       if (!socket) return;
       if (socket.readyState === WebSocket.OPEN) {

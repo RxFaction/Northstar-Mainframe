@@ -106,6 +106,14 @@ function getNegotiationId(data) {
     : null;
 }
 
+function getConnectionId(data) {
+  return typeof data.connectionId === 'string'
+    && data.connectionId.length > 0
+    && data.connectionId.length <= 128
+    ? data.connectionId
+    : null;
+}
+
 wss.on('connection', ws => {
   console.log('[Northstar] New client connected');
   clientRoles.set(ws, 'unknown');
@@ -168,7 +176,8 @@ wss.on('connection', ws => {
         type: 'request-offer',
         viewerId: senderId,
         from: senderId,
-        iceRestart: data.iceRestart === true
+        iceRestart: data.iceRestart === true,
+        connectionId: getConnectionId(data)
       }));
       return;
     }
@@ -181,6 +190,7 @@ wss.on('connection', ws => {
         offer: data.offer,
         iceRestart: data.iceRestart === true,
         negotiationId: getNegotiationId(data),
+        connectionId: getConnectionId(data),
         from: senderId,
         to: targetId
       }));
@@ -194,6 +204,7 @@ wss.on('connection', ws => {
         type: 'answer',
         answer: data.answer,
         negotiationId: getNegotiationId(data),
+        connectionId: getConnectionId(data),
         from: senderId,
         to: targetId
       }));
@@ -208,6 +219,7 @@ wss.on('connection', ws => {
             type: 'candidate',
             candidate: data.candidate,
             negotiationId: getNegotiationId(data),
+            connectionId: getConnectionId(data),
             from: senderId,
             to: streamerId
           }));
@@ -218,6 +230,7 @@ wss.on('connection', ws => {
         type: 'candidate',
         candidate: data.candidate,
         negotiationId: getNegotiationId(data),
+        connectionId: getConnectionId(data),
         from: senderId,
         to: targetId
       }));

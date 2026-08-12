@@ -10,6 +10,7 @@ Self-hostable P2P live streaming with WebRTC + WebSocket signaling. Zero CDN. Co
 - Multi-viewer handling with per-viewer peer connection map to ensure clean disconnects + reconnects.
 - Transient network interruptions now get a recovery grace period and automatic ICE restart instead of an immediate disconnect.
 - ICE candidates are buffered per peer until the corresponding remote session description is ready.
+- Offer creation is serialized per viewer, with connection-generation IDs rejecting stale answers and candidates.
 - Unique streamer and viewer IDs assigned to ensure the smoothest playback.
 
 ## Features
