@@ -159,7 +159,8 @@ wss.on('connection', ws => {
       sendToClient(streamerId, JSON.stringify({
         type: 'request-offer',
         viewerId: senderId,
-        from: senderId
+        from: senderId,
+        iceRestart: data.iceRestart === true
       }));
       return;
     }
@@ -170,6 +171,7 @@ wss.on('connection', ws => {
       sendToClient(targetId, JSON.stringify({
         type: 'offer',
         offer: data.offer,
+        iceRestart: data.iceRestart === true,
         from: senderId,
         to: targetId
       }));

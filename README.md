@@ -8,6 +8,7 @@ Self-hostable P2P live streaming with WebRTC + WebSocket signaling. Zero CDN. Co
 - Improved mobile layout with safe-area padding, proper top action button panel, and keyboard-aware chat (no more footer overlaps).
 - Updated viewer count badge + backend role-aware signaling for cleaner streamer/viewer lifecycles.
 - Multi-viewer handling with per-viewer peer connection map to ensure clean disconnects + reconnects.
+- Transient network interruptions now get a recovery grace period and automatic ICE restart instead of an immediate disconnect.
 - Unique streamer and viewer IDs assigned to ensure the smoothest playback.
 
 ## Features

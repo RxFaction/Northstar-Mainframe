@@ -321,8 +321,13 @@
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const socket = new WebSocket(`${wsProtocol}://${window.location.host}`);
+    const ICE_DISCONNECT_GRACE_MS = 8_000;
+    const ICE_RESTART_RETRY_MS = 15_000;
     const peerConnections = new Map();
+    const streamerRecoveryTimers = new Map();
+    const streamerRecoveriesInFlight = new Set();
     let peerConnection;
+    let viewerRecoveryTimer = null;
     let localStream;
     let micStream;
     let role = null;
@@ -427,7 +432,7 @@
         if (role !== 'viewer') return;
         if (data.to && clientId && data.to !== clientId) return;
         streamerId = data.from || streamerId;
-        await handleViewerOffer(data.offer);
+        await handleViewerOffer(data.offer, { iceRestart: data.iceRestart === true });
         return;
       }
       if (data.type === 'answer') {
@@ -450,7 +455,13 @@
       if (data.type === 'request-offer') {
         if (role === 'streamer' && localStream) {
           const viewerId = data.viewerId || data.from;
-          if (viewerId) await buildAndSendOfferForViewer(viewerId, { iceRestart: true });
+          if (!viewerId) return;
+          const pc = peerConnections.get(viewerId);
+          if (data.iceRestart === true && pc && pc.signalingState !== 'closed') {
+            await restartStreamerIce(viewerId, pc);
+          } else {
+            await buildAndSendOfferForViewer(viewerId);
+          }
         }
         return;
       }
@@ -501,6 +512,18 @@
           playPromise.catch(()=>{});
         }
       };
+      pc.oniceconnectionstatechange = ()=>{
+        const state = pc.iceConnectionState;
+        if (state === 'connected' || state === 'completed') {
+          clearViewerRecovery();
+        } else if (state === 'disconnected') {
+          scheduleViewerRecovery(pc, ICE_DISCONNECT_GRACE_MS);
+        } else if (state === 'failed') {
+          scheduleViewerRecovery(pc, 0);
+        } else if (state === 'closed' && peerConnection === pc) {
+          clearViewerRecovery();
+        }
+      };
       return pc;
     }
 
@@ -515,18 +538,86 @@
         }
       };
       pc.oniceconnectionstatechange = ()=>{
-        if (['failed', 'disconnected', 'closed'].includes(pc.iceConnectionState)) {
-          closeStreamerPeer(viewerId);
+        const state = pc.iceConnectionState;
+        if (state === 'connected' || state === 'completed') {
+          clearStreamerRecovery(viewerId);
+        } else if (state === 'disconnected') {
+          scheduleStreamerRecovery(viewerId, pc, ICE_DISCONNECT_GRACE_MS);
+        } else if (state === 'failed') {
+          scheduleStreamerRecovery(viewerId, pc, 0);
+        } else if (state === 'closed') {
+          closeStreamerPeer(viewerId, pc);
         }
       };
       return pc;
     }
 
-    function closeStreamerPeer(viewerId){
+    function clearStreamerRecovery(viewerId){
+      const timer = streamerRecoveryTimers.get(viewerId);
+      if (timer) clearTimeout(timer);
+      streamerRecoveryTimers.delete(viewerId);
+    }
+
+    function scheduleStreamerRecovery(viewerId, pc, delay){
+      if (peerConnections.get(viewerId) !== pc || pc.signalingState === 'closed') return;
+      const existingTimer = streamerRecoveryTimers.get(viewerId);
+      if (existingTimer) clearTimeout(existingTimer);
+
+      const timer = setTimeout(async ()=>{
+        streamerRecoveryTimers.delete(viewerId);
+        if (peerConnections.get(viewerId) !== pc || pc.signalingState === 'closed') return;
+        if (['connected', 'completed'].includes(pc.iceConnectionState)) return;
+        await restartStreamerIce(viewerId, pc);
+      }, delay);
+      streamerRecoveryTimers.set(viewerId, timer);
+    }
+
+    async function restartStreamerIce(viewerId, pc){
+      if (peerConnections.get(viewerId) !== pc || pc.signalingState === 'closed') return;
+      if (streamerRecoveriesInFlight.has(viewerId)) return;
+      streamerRecoveriesInFlight.add(viewerId);
+
+      try {
+        if (pc.signalingState !== 'stable') {
+          console.warn(`Peer ${viewerId} cannot restart ICE from ${pc.signalingState}; rebuilding connection`);
+          await buildAndSendOfferForViewer(viewerId);
+          return;
+        }
+
+        if (typeof pc.restartIce === 'function') pc.restartIce();
+        const offer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(offer);
+        if (peerConnections.get(viewerId) !== pc) return;
+
+        socket.send(JSON.stringify({
+          type: 'offer',
+          offer: pc.localDescription || offer,
+          iceRestart: true,
+          to: viewerId,
+          from: clientId
+        }));
+        scheduleStreamerRecovery(viewerId, pc, ICE_RESTART_RETRY_MS);
+      } catch (error) {
+        console.warn(`ICE restart failed for peer ${viewerId}; rebuilding connection`, error);
+        if (peerConnections.get(viewerId) === pc && localStream) {
+          try {
+            await buildAndSendOfferForViewer(viewerId);
+          } catch (rebuildError) {
+            console.warn(`Failed to rebuild connection for peer ${viewerId}`, rebuildError);
+          }
+        }
+      } finally {
+        streamerRecoveriesInFlight.delete(viewerId);
+      }
+    }
+
+    function closeStreamerPeer(viewerId, expectedPc = null){
       const pc = peerConnections.get(viewerId);
-      if (!pc) return;
-      try { pc.close(); } catch {}
+      if (!pc || (expectedPc && pc !== expectedPc)) return;
+      clearStreamerRecovery(viewerId);
+      streamerRecoveriesInFlight.delete(viewerId);
       peerConnections.delete(viewerId);
+      try { pc.close(); } catch {}
     }
 
     function closeAllStreamerPeers(){
@@ -536,6 +627,7 @@
     }
 
     function cleanupViewerConnection(){
+      clearViewerRecovery();
       if (peerConnection) {
         try { peerConnection.close(); } catch {}
         peerConnection = null;
@@ -546,15 +638,39 @@
       streamerId = null;
     }
 
-    async function handleViewerOffer(offer){
-      if (peerConnection && peerConnection.signalingState !== 'closed') {
-        try { peerConnection.close(); } catch {}
+    function clearViewerRecovery(){
+      if (viewerRecoveryTimer) clearTimeout(viewerRecoveryTimer);
+      viewerRecoveryTimer = null;
+    }
+
+    function scheduleViewerRecovery(pc, delay){
+      if (peerConnection !== pc || pc.signalingState === 'closed') return;
+      clearViewerRecovery();
+      viewerRecoveryTimer = setTimeout(()=>{
+        viewerRecoveryTimer = null;
+        if (peerConnection !== pc || pc.signalingState === 'closed') return;
+        if (['connected', 'completed'].includes(pc.iceConnectionState)) return;
+        requestOfferFromStreamer({ iceRestart: true });
+        scheduleViewerRecovery(pc, ICE_RESTART_RETRY_MS);
+      }, delay);
+    }
+
+    async function handleViewerOffer(offer, { iceRestart = false } = {}){
+      clearViewerRecovery();
+      const canReuseConnection = iceRestart
+        && peerConnection
+        && peerConnection.signalingState === 'stable';
+
+      if (!canReuseConnection) {
+        if (peerConnection && peerConnection.signalingState !== 'closed') {
+          try { peerConnection.close(); } catch {}
+        }
+        peerConnection = createViewerPeerConnection(streamerId);
       }
-      peerConnection = createViewerPeerConnection(streamerId);
       await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
-      const payload = { type: 'answer', answer, from: clientId };
+      const payload = { type: 'answer', answer: peerConnection.localDescription || answer, from: clientId };
       if (streamerId) payload.to = streamerId;
       socket.send(JSON.stringify(payload));
     }
@@ -707,13 +823,13 @@
     }
 
     // Streamer helper - build connection per viewer and push SDP offer
-    async function buildAndSendOfferForViewer(viewerId, { iceRestart = false } = {}){
+    async function buildAndSendOfferForViewer(viewerId){
       if (!localStream || !viewerId) return;
       const videoTrack = localStream.getVideoTracks()[0] || null;
 
       const existing = peerConnections.get(viewerId);
       if (existing) {
-        try { existing.close(); } catch {}
+        closeStreamerPeer(viewerId, existing);
       }
 
       const pc = createStreamerPeerConnection(viewerId);
@@ -722,23 +838,31 @@
       await applyCodecPreference(pc, currentCodecPreference);
       await tuneSenderParams(pc, currentQualityProfile, videoTrack);
 
-      const offer = await pc.createOffer({ iceRestart });
+      const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      socket.send(JSON.stringify({ type:'offer', offer, to: viewerId, from: clientId }));
+      socket.send(JSON.stringify({
+        type:'offer',
+        offer: pc.localDescription || offer,
+        iceRestart: false,
+        to: viewerId,
+        from: clientId
+      }));
     }
 
     // Viewer helper - ask the active streamer to send a new offer
-    function requestOfferFromStreamer(){
-      const payload = { type: 'request-offer' };
+    function requestOfferFromStreamer({ iceRestart = false } = {}){
+      const payload = { type: 'request-offer', iceRestart };
       if (clientId) payload.viewerId = clientId;
       if (!socket) return;
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify(payload));
-      } else {
+      } else if (socket.readyState === WebSocket.CONNECTING) {
         const once = () => {
-          socket.send(JSON.stringify(payload));
+          if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
         };
         socket.addEventListener('open', once, { once: true });
+      } else if (iceRestart) {
+        console.warn('Cannot request ICE restart because signaling is disconnected');
       }
     }
 
