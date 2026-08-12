@@ -31,7 +31,7 @@ Self-hostable P2P live streaming with WebRTC + WebSocket signaling. Zero CDN. Co
 3. Install server dependencies:
    ```powershell
    cd .\Northstar\server
-   npm install
+   npm.cmd install
    ```
 
 ## Setup (macOS)
@@ -43,100 +43,39 @@ Self-hostable P2P live streaming with WebRTC + WebSocket signaling. Zero CDN. Co
    npm install
    ```
 
-## Create a local HTTPS certificate
-Every Northstar installation should generate its own certificate and private key. Never reuse or commit another host's private key. The default `Northstar/server/certs/` directory is excluded by `.gitignore`.
+## One-time HTTPS setup
+Every Northstar installation should generate its own certificate and private key. Never reuse or commit another host's private key. The generated `Northstar/server/certs/` directory is excluded by `.gitignore`.
 
-The certificate must include the address entered in the browser. For LAN access, use the Northstar host computer's private IPv4 address (usually `192.168.x.x` or `10.x.x.x`), not a viewer's address or the public internet address. If the host's LAN address changes, regenerate the certificate or reserve a stable address in the router.
-
-### Windows 11 certificate
-From the repository root, replace `192.168.1.50` with the Northstar host computer's LAN IPv4 address:
+Northstar includes a cross-platform setup assistant. From `Northstar/server`, run:
 
 ```powershell
-Set-Location .\Northstar\server
-New-Item -ItemType Directory -Path .\certs -Force | Out-Null
-
-$lanIp = "192.168.1.50"
-$hostName = [System.Net.Dns]::GetHostName()
-$san = "subjectAltName=DNS:localhost,DNS:$hostName,IP:127.0.0.1,IP:$lanIp"
-
-# Use OpenSSL from PATH, or the copy bundled with Git for Windows.
-$opensslCommand = Get-Command openssl -ErrorAction SilentlyContinue
-$openssl = if ($opensslCommand) {
-  $opensslCommand.Source
-} else {
-  "$env:ProgramFiles\Git\usr\bin\openssl.exe"
-}
-
-if (-not (Test-Path -LiteralPath $openssl)) {
-  throw "OpenSSL was not found. Install OpenSSL or Git for Windows, then try again."
-}
-
-& $openssl req -x509 -nodes -newkey rsa:3072 -sha256 -days 365 `
-  -keyout .\certs\key.pem `
-  -out .\certs\cert.pem `
-  -subj "/CN=$hostName" `
-  -addext $san
-
-& $openssl x509 -in .\certs\cert.pem -noout -subject -dates -ext subjectAltName
+npm run setup:https
 ```
 
-To find the likely LAN address before setting `$lanIp`, run:
+If Windows PowerShell blocks `npm.ps1` because of its execution policy, use `npm.cmd run setup:https` instead. This invokes the same npm command without changing the system policy.
+
+The assistant lists detected IPv4 addresses and asks which address viewers will use. Choose the Northstar host computer's private LAN address (usually `192.168.x.x` or `10.x.x.x`), not a viewer's address. It then finds OpenSSL, generates a unique certificate with the correct Subject Alternative Names, verifies the result, and—when run from a Git clone—confirms that the private key is protected by `.gitignore`.
+
+Git for Windows includes a compatible copy of OpenSSL. On macOS, install OpenSSL first if it is not already available. For non-interactive setup, provide the address directly:
 
 ```powershell
-Get-NetIPAddress -AddressFamily IPv4 |
-  Where-Object { $_.IPAddress -notlike "127.*" } |
-  Select-Object InterfaceAlias, IPAddress
+npm run setup:https -- --ip 192.168.1.50
 ```
 
-Choose the address for the active Wi-Fi or Ethernet adapter, avoiding VPN and virtual adapters.
+Replace `192.168.1.50` with the Northstar host's address. The setup assistant will not overwrite existing keys. To intentionally rotate an existing local certificate, add `--force`:
 
-### macOS certificate
-From the repository root, replace `192.168.1.50` with the Northstar host Mac's LAN IPv4 address. These commands require an OpenSSL version that supports `-addext`:
-
-```bash
-cd ./Northstar/server
-mkdir -p ./certs
-
-lan_ip="192.168.1.50"
-host_name="$(hostname)"
-san="subjectAltName=DNS:localhost,DNS:${host_name},IP:127.0.0.1,IP:${lan_ip}"
-
-openssl req -x509 -nodes -newkey rsa:3072 -sha256 -days 365 \
-  -keyout ./certs/key.pem \
-  -out ./certs/cert.pem \
-  -subj "/CN=${host_name}" \
-  -addext "${san}"
-
-openssl x509 -in ./certs/cert.pem -noout -subject -dates -ext subjectAltName
+```powershell
+npm run setup:https -- --ip 192.168.1.50 --force
 ```
 
-Self-signed certificates produce a browser warning until explicitly trusted. For a public deployment, use a domain and a certificate from a trusted certificate authority instead. To use certificates stored elsewhere, set the `SSL_KEY` and `SSL_CERT` environment variables to their paths.
+If the host's LAN address changes, regenerate the certificate or reserve a stable address in the router. Self-signed certificates produce a browser warning until explicitly trusted. For a public deployment, use a domain and a certificate from a trusted certificate authority instead. To use certificates stored elsewhere, set the `SSL_KEY` and `SSL_CERT` environment variables to their paths.
 
-## Startup (Windows 11)
-1. From the repo root (for example `C:\Users\Josh\Northstar`), start the server:
-   ```powershell
-   $env:USE_HTTPS = "1"
-   node .\Northstar\server\index.js
-   ```
-   Omit `USE_HTTPS` if you only need `http://localhost:3000`.
-2. Access the webpage:
-   On the same PC: `https://localhost:3000`  
-   On another LAN device: `https://<YourLocalIPv4>:3000`  
-   From the internet (port-forwarded): `https://<YourPublicIP>:3000`
-3. Accept the self-signed certificate on first visit when using HTTPS.
+## Startup
+From `Northstar/server`, start Northstar with `npm.cmd start` on Windows or `npm start` on macOS. The launcher automatically uses HTTPS when both local certificate files exist and prints the exact URLs to open.
 
-## Startup (macOS)
-1. From the repo root, start the server:
-   ```bash
-   export USE_HTTPS=1
-   node ./Northstar/server/index.js
-   ```
-   Omit `USE_HTTPS` if you only need `http://localhost:3000`.
-2. Access the webpage:
-   On the same Mac: `https://localhost:3000`  
-   On another LAN device: `https://<YourLocalIPv4>:3000`  
-   From the internet (port-forwarded): `https://<YourPublicIP>:3000`
-3. Accept the self-signed certificate on first visit when using HTTPS.
+To explicitly require HTTPS, run `npm run start:https`. To intentionally run without it, use `npm run start:http`. On Windows, substitute `npm.cmd` if PowerShell blocks `npm.ps1`. You can select another port with `npm start -- --port 8080`.
+
+Accept the self-signed certificate on first visit when using HTTPS. On another LAN device, open the printed URL containing the Northstar host's LAN address.
 
 ### Using Northstar
 - Click **Go Live** on the streaming device, then **Join as Viewer** on any receiving device.
@@ -152,8 +91,9 @@ Self-signed certificates produce a browser warning until explicitly trusted. For
 - Continued UI refinements: a mobile-first layout overhaul.
 
 ## Troubleshooting
-- No screen share prompt on a remote device: HTTPS is required for `getDisplayMedia()`. Enable `USE_HTTPS=1` and use `https://<host>:3000`.
-- "Failed to read SSL key/cert": Ensure `Northstar/server/certs/key.pem` and `Northstar/server/certs/cert.pem` exist, or set `SSL_KEY` and `SSL_CERT`.
+- No screen share prompt on a remote device: HTTPS is required for `getDisplayMedia()`. Run `npm run setup:https`, restart with `npm start`, and open the printed `https://` address.
+- "OpenSSL was not found": Install OpenSSL or Git for Windows, or set `OPENSSL` to the executable path before running `npm run setup:https`.
+- "Failed to read SSL key/cert": Run `npm run setup:https` from `Northstar/server`, or set `SSL_KEY` and `SSL_CERT` to existing certificate paths.
 - Can’t connect from another device on LAN: Confirm the server PC and device are on the same network, the IP is correct, and port 3000 is allowed through the firewall.
 - Can’t connect from the internet: Port-forward TCP 3000 on your router to the host machine and use your public IP or domain.
 - Viewer sees black video or no audio: Make sure the streamer clicked **Go Live** and granted screen + (optional) mic permissions.

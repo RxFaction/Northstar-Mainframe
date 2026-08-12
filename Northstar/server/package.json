@@ -4,6 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "node ../setup/start.mjs",
+    "start:http": "node ../setup/start.mjs --http",
+    "start:https": "node ../setup/start.mjs --https",
+    "setup:https": "node ../setup/setup-https.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

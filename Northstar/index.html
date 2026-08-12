@@ -320,9 +320,7 @@
     remoteEl.classList.add('hidden');
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const wsHost = window.location.hostname || 'localhost';
-    const wsPort = '3000';                                                    // Signaling server stays on 3000 even when HTTP host runs on another port
-    const socket = new WebSocket(`${wsProtocol}://${wsHost}:${wsPort}`);      // New auto-detect active LAN address (in testing v0.5.1-alpha)
+    const socket = new WebSocket(`${wsProtocol}://${window.location.host}`);
     const peerConnections = new Map();
     let peerConnection;
     let localStream;
