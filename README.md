@@ -12,6 +12,7 @@ Self-hostable P2P live streaming with WebRTC + WebSocket signaling. Zero CDN. Co
 - ICE candidates are buffered per peer until the corresponding remote session description is ready.
 - Offer creation is serialized per viewer, with connection-generation IDs rejecting stale answers and candidates.
 - Streamer/viewer transitions use an explicit lifecycle that closes peers and stops every owned media track.
+- Per-viewer quality adapts from WebRTC loss, latency, and available-bitrate statistics within the selected preset.
 - Unique streamer and viewer IDs assigned to ensure the smoothest playback.
 
 ## Features

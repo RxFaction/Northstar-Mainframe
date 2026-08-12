@@ -188,8 +188,8 @@
           <div class="settings-row">
             <label for="qualityProfile">Quality preset
               <select id="qualityProfile" title="Streaming Quality">
-                <option value="1080p60" selected>1080p 60fps</option>
-                <option value="720p60">720p 60fps</option>
+                <option value="1080p60">1080p 60fps</option>
+                <option value="720p60" selected>720p 60fps (Default)</option>
                 <option value="720p30">720p 30fps</option>
               </select>
             </label>
@@ -292,9 +292,9 @@
 
     // Quality + bitrate presets that mirror the gear dropdown
     const QUALITY_PROFILES = {
-      '1080p60': { width: 1920, height: 1080, frameRate: 60, bitrate: 12_000_000, minBitrate: 8_000_000, degradationPreference: 'maintain-resolution', scalabilityMode: 'L1T3' },
-      '720p60':  { width: 1280, height: 720, frameRate: 60, bitrate: 7_000_000,  minBitrate: 4_000_000, degradationPreference: 'maintain-resolution', scalabilityMode: 'L1T3' },
-      '720p30':  { width: 1280, height: 720, frameRate: 30, bitrate: 4_000_000,  minBitrate: 2_500_000, degradationPreference: 'maintain-resolution', scalabilityMode: 'L1T2' }
+      '1080p60': { width: 1920, height: 1080, frameRate: 60, maxBitrate: 12_000_000, adaptiveFloor: 1_500_000, degradationPreference: 'balanced' },
+      '720p60':  { width: 1280, height: 720, frameRate: 60, maxBitrate: 7_000_000,  adaptiveFloor: 1_000_000, degradationPreference: 'balanced' },
+      '720p30':  { width: 1280, height: 720, frameRate: 30, maxBitrate: 4_000_000,  adaptiveFloor: 750_000,   degradationPreference: 'balanced' }
     };
     // Optional codec overrides (auto falls back to browser defaults)
     const CODEC_PREFERENCES = {
@@ -323,6 +323,8 @@
     const socket = new WebSocket(`${wsProtocol}://${window.location.host}`);
     const ICE_DISCONNECT_GRACE_MS = 8_000;
     const ICE_RESTART_RETRY_MS = 15_000;
+    const QUALITY_ADAPTATION_INTERVAL_MS = 3_000;
+    const QUALITY_ADAPTATION_HEADROOM = 0.85;
     const MAX_PENDING_ICE_CANDIDATES = 128;
     const LEGACY_NEGOTIATION_ID = 'legacy';
     const LEGACY_CONNECTION_ID = 'legacy-connection';
@@ -340,9 +342,12 @@
     });
     const peerConnections = new Map();
     const streamerRecoveryTimers = new Map();
+    const streamerQualityTimers = new Map();
     const streamerNegotiationTasks = new Map();
     const pendingStreamerIceRestarts = new Set();
     const candidateStates = new WeakMap();
+    const senderParameterTasks = new WeakMap();
+    const senderAdaptationStates = new WeakMap();
     const pendingStreamerCandidates = new Map();
     const pendingViewerCandidates = new Map();
     const retiredStreamerConnectionIds = new Map();
@@ -365,7 +370,7 @@
     let negotiationCounter = 0;
     let connectionCounter = 0;
     let screenShareAlertShown = false;
-    let currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['1080p60'];
+    let currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['720p60'];
     let currentCodecPreference = codecSelect?.value || 'auto';
     bodyEl.dataset.lifecycleState = lifecycleState;
 
@@ -383,13 +388,14 @@
 
     // Let the streamer adjust resolution/bitrate while live
     qualitySelect?.addEventListener('change', async ()=>{
-      currentQualityProfile = QUALITY_PROFILES[qualitySelect.value] || QUALITY_PROFILES['1080p60'];
+      currentQualityProfile = QUALITY_PROFILES[qualitySelect.value] || QUALITY_PROFILES['720p60'];
       if (!localStream) return;
       const vTrack = localStream.getVideoTracks()[0];
       if (!vTrack) return;
       await applyQualityConstraints(vTrack, currentQualityProfile);
       if (role === 'streamer') {
         for (const pc of peerConnections.values()) {
+          resetSenderAdaptation(pc, currentQualityProfile);
           await tuneSenderParams(pc, currentQualityProfile, vTrack);
         }
       }
@@ -660,9 +666,12 @@
         const state = pc.iceConnectionState;
         if (state === 'connected' || state === 'completed') {
           clearStreamerRecovery(viewerId);
+          startAdaptiveQuality(viewerId, pc);
         } else if (state === 'disconnected') {
+          stopAdaptiveQuality(viewerId, pc);
           scheduleStreamerRecovery(viewerId, pc, ICE_DISCONNECT_GRACE_MS);
         } else if (state === 'failed') {
+          stopAdaptiveQuality(viewerId, pc);
           scheduleStreamerRecovery(viewerId, pc, 0);
         } else if (state === 'closed') {
           closeStreamerPeer(viewerId, pc);
@@ -1013,6 +1022,7 @@
       const pc = peerConnections.get(viewerId);
       if (expectedPc && pc !== expectedPc) return;
       clearStreamerRecovery(viewerId);
+      stopAdaptiveQuality(viewerId, pc);
       pendingStreamerIceRestarts.delete(viewerId);
       pendingStreamerCandidates.delete(viewerId);
       if (!pc) return;
@@ -1021,6 +1031,7 @@
       }
       peerConnections.delete(viewerId);
       clearCandidateState(pc);
+      senderAdaptationStates.delete(pc);
       try { pc.close(); } catch {}
     }
 
@@ -1257,7 +1268,7 @@
     async function captureAndPublish(){
       setLifecycleState(LIFECYCLE_STATES.CAPTURING);
       closeSettingsPanel();
-      currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['1080p60'];
+      currentQualityProfile = QUALITY_PROFILES[qualitySelect?.value] || QUALITY_PROFILES['720p60'];
       currentCodecPreference = codecSelect?.value || 'auto';
       const qualityConstraints = buildQualityConstraints(currentQualityProfile);
       const thisCaptureGeneration = ++captureGeneration;
@@ -1500,6 +1511,7 @@
       try {
         getOutboundTracks().forEach(({ track, stream }) => pc.addTrack(track, stream));
         await applyCodecPreference(pc, currentCodecPreference);
+        resetSenderAdaptation(pc, currentQualityProfile);
         await tuneSenderParams(pc, currentQualityProfile, videoTrack);
         if (peerConnections.get(viewerId) !== pc || pc.signalingState === 'closed') return;
 
@@ -1556,32 +1568,207 @@
       }
     }
 
-    async function tuneSenderParams(pc, profile, track){
-      const sender = pc && pc.getSenders().find(s => s.track && s.track.kind === 'video');
-      if(!sender) return;
-      const params = sender.getParameters();
-      if(!params.encodings || !params.encodings.length) params.encodings = [{}];
-      const enc = params.encodings[0];
+    function getDegradationPreference(profile){
+      if (contentHintSelect?.value === 'motion') return 'maintain-framerate';
+      if (contentHintSelect?.value === 'detail') return 'maintain-resolution';
+      return profile?.degradationPreference || 'balanced';
+    }
 
-      if(profile?.bitrate) enc.maxBitrate = profile.bitrate;
-      if(profile?.minBitrate) enc.minBitrate = profile.minBitrate;
-      if(profile?.frameRate) enc.maxFramerate = profile.frameRate;
-      if(profile?.scalabilityMode) enc.scalabilityMode = profile.scalabilityMode;
-      enc.scaleResolutionDownBy = 1;
+    function getBaseResolutionScale(track, profile){
+      if (!track || typeof track.getSettings !== 'function' || !profile?.width) return 1;
+      const sourceWidth = track.getSettings()?.width;
+      if (!sourceWidth || sourceWidth <= profile.width) return 1;
+      return Math.max(1, sourceWidth / profile.width);
+    }
 
-      if (track && typeof track.getSettings === 'function' && profile?.width) {
-        const settings = track.getSettings();
-        if (settings && settings.width && settings.width > profile.width) {
-          const scale = settings.width / profile.width;
-          if (scale > 1.05) enc.scaleResolutionDownBy = scale;
+    function getAdaptiveResolutionScale(profile, track, maxBitrate){
+      const baseScale = getBaseResolutionScale(track, profile);
+      const ceiling = profile?.maxBitrate || maxBitrate;
+      if (!ceiling || !maxBitrate) return baseScale;
+      const bitrateRatio = maxBitrate / ceiling;
+      const preference = getDegradationPreference(profile);
+      let adaptiveScale = 1;
+
+      if (preference === 'maintain-framerate') {
+        if (bitrateRatio < 0.45) adaptiveScale = 2;
+        else if (bitrateRatio < 0.7) adaptiveScale = 1.5;
+      } else if (preference === 'balanced' && bitrateRatio < 0.4) {
+        adaptiveScale = 1.5;
+      }
+      return Math.max(1, Math.min(4, baseScale * adaptiveScale));
+    }
+
+    function queueSenderParameterUpdate(sender, update){
+      const previousTask = senderParameterTasks.get(sender) || Promise.resolve();
+      const task = previousTask.catch(()=>{}).then(async ()=>{
+        const params = sender.getParameters();
+        if (!params.encodings?.length) {
+          console.warn('Cannot tune sender before an RTP encoding is available');
+          return false;
         }
+        update(params, params.encodings[0]);
+        await sender.setParameters(params);
+        return true;
+      });
+      senderParameterTasks.set(sender, task);
+      const clearTask = ()=>{
+        if (senderParameterTasks.get(sender) === task) senderParameterTasks.delete(sender);
+      };
+      task.then(clearTask, clearTask);
+      return task;
+    }
+
+    async function tuneSenderParams(
+      pc,
+      profile,
+      track,
+      { maxBitrate = profile?.maxBitrate } = {}
+    ){
+      const sender = pc?.getSenders().find(candidate => candidate.track?.kind === 'video');
+      if (!sender || !maxBitrate) return false;
+      const resolutionScale = getAdaptiveResolutionScale(profile, track, maxBitrate);
+
+      try {
+        const applied = await queueSenderParameterUpdate(sender, (params, encoding)=>{
+          encoding.maxBitrate = Math.max(1, Math.round(maxBitrate));
+          if (profile?.frameRate) encoding.maxFramerate = profile.frameRate;
+          encoding.scaleResolutionDownBy = resolutionScale;
+          params.degradationPreference = getDegradationPreference(profile);
+          encoding.priority = 'high';
+          encoding.networkPriority = 'high';
+        });
+        const adaptationState = senderAdaptationStates.get(pc);
+        if (applied && adaptationState?.profile === profile) {
+          adaptationState.parametersApplied = true;
+        }
+        return applied;
+      } catch (error) {
+        console.warn('setParameters failed', error);
+        return false;
+      }
+    }
+
+    function resetSenderAdaptation(pc, profile){
+      if (!pc || !profile) return;
+      senderAdaptationStates.set(pc, {
+        profile,
+        currentBitrate: profile.maxBitrate,
+        healthySamples: 0,
+        adapting: false,
+        parametersApplied: false
+      });
+    }
+
+    function readNetworkQuality(stats){
+      let selectedPairId = null;
+      let fallbackPair = null;
+      let fractionLost = null;
+      let roundTripTime = null;
+
+      stats.forEach(report => {
+        if (report.type === 'transport' && report.selectedCandidatePairId) {
+          selectedPairId = report.selectedCandidatePairId;
+        }
+        if (
+          report.type === 'candidate-pair'
+          && report.state === 'succeeded'
+          && report.nominated
+        ) {
+          fallbackPair = report;
+        }
+        if (
+          report.type === 'remote-inbound-rtp'
+          && (report.kind === 'video' || report.mediaType === 'video')
+        ) {
+          if (Number.isFinite(report.fractionLost)) {
+            fractionLost = Math.max(fractionLost || 0, report.fractionLost);
+          }
+          if (Number.isFinite(report.roundTripTime)) {
+            roundTripTime = Math.max(roundTripTime || 0, report.roundTripTime);
+          }
+        }
+      });
+
+      const selectedPair = (selectedPairId && stats.get?.(selectedPairId)) || fallbackPair;
+      const availableOutgoingBitrate = Number.isFinite(selectedPair?.availableOutgoingBitrate)
+        ? selectedPair.availableOutgoingBitrate
+        : null;
+      return { availableOutgoingBitrate, fractionLost, roundTripTime };
+    }
+
+    function chooseAdaptiveBitrate(profile, state, networkQuality){
+      const ceiling = profile.maxBitrate;
+      const floor = Math.min(ceiling, profile.adaptiveFloor || 500_000);
+      const current = Math.max(floor, Math.min(ceiling, state.currentBitrate || ceiling));
+      const { availableOutgoingBitrate, fractionLost, roundTripTime } = networkQuality;
+      const capacityCeiling = availableOutgoingBitrate !== null
+        ? Math.max(floor, availableOutgoingBitrate * QUALITY_ADAPTATION_HEADROOM)
+        : null;
+      const severePressure = (fractionLost !== null && fractionLost >= 0.08)
+        || (roundTripTime !== null && roundTripTime >= 0.45);
+      const moderatePressure = (fractionLost !== null && fractionLost >= 0.03)
+        || (roundTripTime !== null && roundTripTime >= 0.3)
+        || (capacityCeiling !== null && capacityCeiling < current * 0.9);
+
+      if (severePressure || moderatePressure) {
+        state.healthySamples = 0;
+        const reduction = severePressure ? 0.7 : 0.85;
+        const reduced = current * reduction;
+        return Math.round(Math.max(floor, Math.min(reduced, capacityCeiling || ceiling)));
       }
 
-      params.degradationPreference = profile?.degradationPreference || 'maintain-resolution';
-      enc.priority = 'high';
-      enc.networkPriority = 'high';
+      state.healthySamples += 1;
+      if (state.healthySamples < 2 || current >= ceiling) return Math.round(current);
+      state.healthySamples = 0;
+      const increase = Math.max(250_000, current * 0.12);
+      return Math.round(Math.min(ceiling, current + increase));
+    }
 
-      try{ await sender.setParameters(params); } catch(e){ console.warn('setParameters failed', e); }
+    async function adaptSenderQuality(viewerId, pc){
+      if (
+        peerConnections.get(viewerId) !== pc
+        || !['connected', 'completed'].includes(pc.iceConnectionState)
+      ) return;
+      const state = senderAdaptationStates.get(pc);
+      if (!state || state.adapting || typeof pc.getStats !== 'function') return;
+      state.adapting = true;
+
+      try {
+        const stats = await pc.getStats();
+        if (
+          peerConnections.get(viewerId) !== pc
+          || senderAdaptationStates.get(pc) !== state
+        ) return;
+        const nextBitrate = chooseAdaptiveBitrate(state.profile, state, readNetworkQuality(stats));
+        if (
+          state.parametersApplied
+          && Math.abs(nextBitrate - state.currentBitrate) < 100_000
+        ) return;
+        const track = localStream?.getVideoTracks()[0] || null;
+        const applied = await tuneSenderParams(pc, state.profile, track, { maxBitrate: nextBitrate });
+        if (applied) state.currentBitrate = nextBitrate;
+      } catch (error) {
+        console.warn(`Quality adaptation failed for viewer ${viewerId}`, error);
+      } finally {
+        state.adapting = false;
+      }
+    }
+
+    function startAdaptiveQuality(viewerId, pc){
+      const activeTimer = streamerQualityTimers.get(viewerId);
+      if (activeTimer?.pc === pc) return;
+      stopAdaptiveQuality(viewerId);
+      const timer = setInterval(()=>{
+        void adaptSenderQuality(viewerId, pc);
+      }, QUALITY_ADAPTATION_INTERVAL_MS);
+      streamerQualityTimers.set(viewerId, { pc, timer });
+    }
+
+    function stopAdaptiveQuality(viewerId, expectedPc = null){
+      const activeTimer = streamerQualityTimers.get(viewerId);
+      if (!activeTimer || (expectedPc && activeTimer.pc !== expectedPc)) return;
+      clearInterval(activeTimer.timer);
+      streamerQualityTimers.delete(viewerId);
     }
 
     function getOutboundTracks(){
@@ -1612,9 +1799,19 @@
     }
 
     // Allow live switching of contentHint while streaming
-    contentHintSelect.addEventListener('change', ()=>{
-      if(!localStream) return; const vTrack = localStream.getVideoTracks()[0];
+    contentHintSelect.addEventListener('change', async ()=>{
+      if(!localStream) return;
+      const vTrack = localStream.getVideoTracks()[0];
       if(vTrack && 'contentHint' in vTrack) vTrack.contentHint = contentHintSelect.value;
+      if (role === 'streamer') {
+        for (const pc of peerConnections.values()) {
+          const state = senderAdaptationStates.get(pc);
+          if (state) state.healthySamples = 0;
+          await tuneSenderParams(pc, currentQualityProfile, vTrack, {
+            maxBitrate: state?.currentBitrate || currentQualityProfile.maxBitrate
+          });
+        }
+      }
     });
   </script>
 </body>
