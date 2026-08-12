@@ -33,15 +33,6 @@ Self-hostable P2P live streaming with WebRTC + WebSocket signaling. Zero CDN. Co
    cd .\Northstar\server
    npm install
    ```
-4. (Optional, recommended for remote screen sharing using HTTPS) Create TLS certs:
-   ```powershell
-   New-Item -ItemType Directory -Path .\certs -Force
-   openssl req -x509 -nodes -days 365 -newkey rsa:2048 `
-     -keyout .\certs\key.pem `
-     -out .\certs\cert.pem `
-     -subj "/CN=your-hostname"
-   ```
-   If you use your own certs, set `SSL_KEY` and `SSL_CERT` instead.
 
 ## Setup (macOS)
 1. Clone this repository or download the latest release: https://github.com/RxFaction/Northstar-Mainframe.git
@@ -51,15 +42,75 @@ Self-hostable P2P live streaming with WebRTC + WebSocket signaling. Zero CDN. Co
    cd ./Northstar/server
    npm install
    ```
-4. (Optional, recommended for remote screen sharing using HTTPS) Create TLS certs:
-   ```bash
-   mkdir -p ./certs
-   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-     -keyout ./certs/key.pem \
-     -out ./certs/cert.pem \
-     -subj "/CN=your-hostname"
-   ```
-   If you use your own certs, set `SSL_KEY` and `SSL_CERT` instead.
+
+## Create a local HTTPS certificate
+Every Northstar installation should generate its own certificate and private key. Never reuse or commit another host's private key. The default `Northstar/server/certs/` directory is excluded by `.gitignore`.
+
+The certificate must include the address entered in the browser. For LAN access, use the Northstar host computer's private IPv4 address (usually `192.168.x.x` or `10.x.x.x`), not a viewer's address or the public internet address. If the host's LAN address changes, regenerate the certificate or reserve a stable address in the router.
+
+### Windows 11 certificate
+From the repository root, replace `192.168.1.50` with the Northstar host computer's LAN IPv4 address:
+
+```powershell
+Set-Location .\Northstar\server
+New-Item -ItemType Directory -Path .\certs -Force | Out-Null
+
+$lanIp = "192.168.1.50"
+$hostName = [System.Net.Dns]::GetHostName()
+$san = "subjectAltName=DNS:localhost,DNS:$hostName,IP:127.0.0.1,IP:$lanIp"
+
+# Use OpenSSL from PATH, or the copy bundled with Git for Windows.
+$opensslCommand = Get-Command openssl -ErrorAction SilentlyContinue
+$openssl = if ($opensslCommand) {
+  $opensslCommand.Source
+} else {
+  "$env:ProgramFiles\Git\usr\bin\openssl.exe"
+}
+
+if (-not (Test-Path -LiteralPath $openssl)) {
+  throw "OpenSSL was not found. Install OpenSSL or Git for Windows, then try again."
+}
+
+& $openssl req -x509 -nodes -newkey rsa:3072 -sha256 -days 365 `
+  -keyout .\certs\key.pem `
+  -out .\certs\cert.pem `
+  -subj "/CN=$hostName" `
+  -addext $san
+
+& $openssl x509 -in .\certs\cert.pem -noout -subject -dates -ext subjectAltName
+```
+
+To find the likely LAN address before setting `$lanIp`, run:
+
+```powershell
+Get-NetIPAddress -AddressFamily IPv4 |
+  Where-Object { $_.IPAddress -notlike "127.*" } |
+  Select-Object InterfaceAlias, IPAddress
+```
+
+Choose the address for the active Wi-Fi or Ethernet adapter, avoiding VPN and virtual adapters.
+
+### macOS certificate
+From the repository root, replace `192.168.1.50` with the Northstar host Mac's LAN IPv4 address. These commands require an OpenSSL version that supports `-addext`:
+
+```bash
+cd ./Northstar/server
+mkdir -p ./certs
+
+lan_ip="192.168.1.50"
+host_name="$(hostname)"
+san="subjectAltName=DNS:localhost,DNS:${host_name},IP:127.0.0.1,IP:${lan_ip}"
+
+openssl req -x509 -nodes -newkey rsa:3072 -sha256 -days 365 \
+  -keyout ./certs/key.pem \
+  -out ./certs/cert.pem \
+  -subj "/CN=${host_name}" \
+  -addext "${san}"
+
+openssl x509 -in ./certs/cert.pem -noout -subject -dates -ext subjectAltName
+```
+
+Self-signed certificates produce a browser warning until explicitly trusted. For a public deployment, use a domain and a certificate from a trusted certificate authority instead. To use certificates stored elsewhere, set the `SSL_KEY` and `SSL_CERT` environment variables to their paths.
 
 ## Startup (Windows 11)
 1. From the repo root (for example `C:\Users\Josh\Northstar`), start the server:
