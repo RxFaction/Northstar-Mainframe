@@ -4,7 +4,7 @@ Self-hostable P2P live streaming with WebRTC + WebSocket signaling. Zero CDN. Co
 
 > **Beta status:** Northstar currently provides one global, single-streamer broadcast for trusted self-hosting. Authentication, TURN relay support, and public-service hardening remain roadmap work.
 
-<img width="438" height="76" alt="Northstar logo" src="https://github.com/user-attachments/assets/081acd31-82d4-4536-bf35-17c5b0177f21" />
+<img width="438" alt="Animated Northstar logo" src="docs/assets/northstar-logo.gif" />
 <img width="2554" height="1209" alt="Northstar application" src="https://github.com/user-attachments/assets/905b87fb-f75b-41e3-8690-94ee67566e85" />
 
 ## v1.0 Beta Highlights (Major milestone!)
